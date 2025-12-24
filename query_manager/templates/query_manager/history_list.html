@@ -1,0 +1,147 @@
+{% extends 'query_manager/base.html' %}
+
+{% block title %}실행 이력 - QueryPilot{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h2><i class="bi bi-clock-history"></i> 쿼리 실행 이력</h2>
+    </div>
+</div>
+
+<!-- Filter Form -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-3">
+            <div class="col-md-2">
+                <label class="form-label">연결</label>
+                {{ form.connection }}
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">쿼리 유형</label>
+                {{ form.query_type }}
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">상태</label>
+                {{ form.status }}
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">시작일</label>
+                {{ form.date_from }}
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">종료일</label>
+                {{ form.date_to }}
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">검색</label>
+                {{ form.search }}
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-search"></i> 검색
+                </button>
+                <a href="{% url 'query_manager:history_list' %}" class="btn btn-outline-secondary">
+                    <i class="bi bi-x-lg"></i> 초기화
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Results -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>검색 결과</span>
+        <span class="badge bg-secondary">{{ executions.paginator.count }}건</span>
+    </div>
+    <div class="card-body p-0">
+        {% if executions %}
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>연결</th>
+                            <th>쿼리</th>
+                            <th>유형</th>
+                            <th>상태</th>
+                            <th>영향 행</th>
+                            <th>실행 시간</th>
+                            <th>실행일</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for e in executions %}
+                            <tr>
+                                <td>
+                                    <a href="{% url 'query_manager:history_detail' e.pk %}">#{{ e.pk }}</a>
+                                </td>
+                                <td>
+                                    <small>{{ e.connection.name }}</small>
+                                </td>
+                                <td>
+                                    <a href="{% url 'query_manager:history_detail' e.pk %}" class="text-decoration-none">
+                                        <code class="text-truncate d-inline-block" style="max-width: 250px;">
+                                            {{ e.query_text|truncatechars:40 }}
+                                        </code>
+                                    </a>
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">{{ e.query_type }}</span>
+                                </td>
+                                <td>
+                                    {% if e.status == 'SUCCESS' %}
+                                        <span class="badge bg-success">성공</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">실패</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ e.affected_rows|default:"-" }}</td>
+                                <td>{{ e.execution_time|floatformat:3 }}s</td>
+                                <td>
+                                    <small>{{ e.executed_at|date:"Y-m-d H:i:s" }}</small>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            {% if executions.has_other_pages %}
+                <nav class="p-3">
+                    <ul class="pagination mb-0 justify-content-center">
+                        {% if executions.has_previous %}
+                            <li class="page-item">
+                                <a class="page-link" href="?page={{ executions.previous_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">&laquo;</a>
+                            </li>
+                        {% endif %}
+
+                        {% for num in executions.paginator.page_range %}
+                            {% if executions.number == num %}
+                                <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                            {% elif num > executions.number|add:'-5' and num < executions.number|add:'5' %}
+                                <li class="page-item">
+                                    <a class="page-link" href="?page={{ num }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">{{ num }}</a>
+                                </li>
+                            {% endif %}
+                        {% endfor %}
+
+                        {% if executions.has_next %}
+                            <li class="page-item">
+                                <a class="page-link" href="?page={{ executions.next_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">&raquo;</a>
+                            </li>
+                        {% endif %}
+                    </ul>
+                </nav>
+            {% endif %}
+        {% else %}
+            <div class="text-center py-5">
+                <i class="bi bi-clock-history display-1 text-muted"></i>
+                <p class="text-muted mt-3">실행 이력이 없습니다.</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

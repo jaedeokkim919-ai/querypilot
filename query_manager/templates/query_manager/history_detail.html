@@ -1,0 +1,151 @@
+{% extends 'query_manager/base.html' %}
+{% load query_tags %}
+
+{% block title %}쿼리 #{{ execution.pk }} - QueryPilot{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{% url 'query_manager:history_list' %}">실행 이력</a></li>
+                <li class="breadcrumb-item active">#{{ execution.pk }}</li>
+            </ol>
+        </nav>
+        <h2>
+            <i class="bi bi-file-text"></i> 쿼리 실행 상세 #{{ execution.pk }}
+        </h2>
+    </div>
+    <div class="col-auto">
+        <a href="{% url 'query_manager:query_editor' %}?connection={{ execution.connection.pk }}" class="btn btn-primary">
+            <i class="bi bi-arrow-repeat"></i> 다시 실행
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Query Info -->
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-code"></i> 실행된 쿼리</h6>
+            </div>
+            <div class="card-body p-0">
+                <pre class="p-3 mb-0 bg-dark text-light" style="max-height: 400px; overflow: auto;"><code>{{ execution.query_text }}</code></pre>
+            </div>
+        </div>
+
+        {% if execution.status == 'FAILED' and execution.error_message %}
+            <div class="card mb-4 border-danger">
+                <div class="card-header bg-danger text-white">
+                    <h6 class="mb-0"><i class="bi bi-exclamation-triangle"></i> 에러 메시지</h6>
+                </div>
+                <div class="card-body">
+                    <pre class="mb-0 text-danger">{{ execution.error_message }}</pre>
+                </div>
+            </div>
+        {% endif %}
+
+        {% if execution.query_type == 'SELECT' and execution.result_data %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-table"></i> 결과 데이터 (최대 100행)</h6>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive" style="max-height: 400px;">
+                        <table class="table table-sm table-striped mb-0">
+                            <thead class="table-dark">
+                                <tr>
+                                    {% for col in execution.result_columns %}
+                                        <th>{{ col }}</th>
+                                    {% endfor %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in execution.result_data %}
+                                    <tr>
+                                        {% for col in execution.result_columns %}
+                                            <td>{{ row|get_item:col|default:"NULL" }}</td>
+                                        {% endfor %}
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        {% if execution.schema_before or execution.schema_after %}
+            <div class="card">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-file-diff"></i> 스키마 변경</h6>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>실행 전</h6>
+                            <pre class="bg-light p-3" style="max-height: 300px; overflow: auto;">{{ execution.schema_before|default:"(없음)" }}</pre>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>실행 후</h6>
+                            <pre class="bg-light p-3" style="max-height: 300px; overflow: auto;">{{ execution.schema_after|default:"(없음)" }}</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+
+    <!-- Execution Info -->
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-info-circle"></i> 실행 정보</h6>
+            </div>
+            <div class="card-body">
+                <table class="table table-sm table-borderless">
+                    <tr>
+                        <th>상태</th>
+                        <td>
+                            {% if execution.status == 'SUCCESS' %}
+                                <span class="badge bg-success">성공</span>
+                            {% else %}
+                                <span class="badge bg-danger">실패</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>쿼리 유형</th>
+                        <td><span class="badge bg-secondary">{{ execution.query_type }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>연결</th>
+                        <td>
+                            <a href="{% url 'query_manager:connection_detail' execution.connection.pk %}">
+                                {{ execution.connection.name }}
+                            </a>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>영향받은 행</th>
+                        <td>{{ execution.affected_rows|default:"-" }}</td>
+                    </tr>
+                    <tr>
+                        <th>실행 시간</th>
+                        <td>{{ execution.execution_time|floatformat:3 }}초</td>
+                    </tr>
+                    <tr>
+                        <th>실행자</th>
+                        <td>{{ execution.executed_by|default:"anonymous" }}</td>
+                    </tr>
+                    <tr>
+                        <th>실행일시</th>
+                        <td>{{ execution.executed_at|date:"Y-m-d H:i:s" }}</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

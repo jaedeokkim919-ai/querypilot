@@ -1,0 +1,116 @@
+{% extends 'query_manager/base.html' %}
+
+{% block title %}스키마 버전 - QueryPilot{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{% url 'query_manager:connection_list' %}">DB 연결</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'query_manager:connection_detail' connection.pk %}">{{ connection.name }}</a></li>
+                <li class="breadcrumb-item active">스키마 버전</li>
+            </ol>
+        </nav>
+        <h2><i class="bi bi-file-earmark-code"></i> 스키마 버전 관리</h2>
+        <p class="text-muted">{{ connection.name }} ({{ connection.host }}:{{ connection.port }})</p>
+    </div>
+</div>
+
+<!-- Table Filter -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-3 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label">테이블 선택</label>
+                <select name="table" class="form-select" onchange="this.form.submit()">
+                    <option value="">모든 테이블</option>
+                    {% for table in tables %}
+                        <option value="{{ table }}" {% if selected_table == table %}selected{% endif %}>{{ table }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Version List -->
+<div class="card">
+    <div class="card-header">
+        <span>스키마 버전 목록</span>
+    </div>
+    <div class="card-body p-0">
+        {% if versions %}
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>테이블</th>
+                            <th>버전</th>
+                            <th>체크섬</th>
+                            <th>생성일</th>
+                            <th>작업</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for v in versions %}
+                            <tr>
+                                <td><code>{{ v.table_name }}</code></td>
+                                <td><span class="badge bg-info">v{{ v.version }}</span></td>
+                                <td><small class="text-muted">{{ v.checksum|slice:":8" }}...</small></td>
+                                <td>{{ v.created_at|date:"Y-m-d H:i" }}</td>
+                                <td>
+                                    <button type="button" class="btn btn-sm btn-outline-primary"
+                                            data-bs-toggle="modal" data-bs-target="#schemaModal"
+                                            data-table="{{ v.table_name }}"
+                                            data-version="{{ v.version }}"
+                                            data-schema="{{ v.schema_definition }}">
+                                        <i class="bi bi-eye"></i> 보기
+                                    </button>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="text-center py-5">
+                <i class="bi bi-file-earmark-code display-1 text-muted"></i>
+                <p class="text-muted mt-3">저장된 스키마 버전이 없습니다.</p>
+                <p class="text-muted small">DDL 쿼리를 실행하면 스키마 버전이 자동으로 저장됩니다.</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Schema View Modal -->
+<div class="modal fade" id="schemaModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-file-earmark-code"></i> 스키마 정의</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p><strong>테이블:</strong> <code id="modal-table"></code></p>
+                <p><strong>버전:</strong> <span id="modal-version" class="badge bg-info"></span></p>
+                <pre class="bg-dark text-light p-3" id="modal-schema" style="max-height: 400px; overflow: auto;"></pre>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('schemaModal').addEventListener('show.bs.modal', function(event) {
+    const button = event.relatedTarget;
+    document.getElementById('modal-table').textContent = button.dataset.table;
+    document.getElementById('modal-version').textContent = 'v' + button.dataset.version;
+    document.getElementById('modal-schema').textContent = button.dataset.schema;
+});
+</script>
+{% endblock %}

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}QueryPilot{% endblock %}</title>
+
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <!-- CodeMirror CSS -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/codemirror.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/theme/dracula.min.css" rel="stylesheet">
+
+    <style>
+        :root {
+            --sidebar-width: 250px;
+        }
+        body {
+            min-height: 100vh;
+        }
+        .sidebar {
+            width: var(--sidebar-width);
+            min-height: 100vh;
+            background: #212529;
+        }
+        .sidebar .nav-link {
+            color: rgba(255,255,255,.75);
+            padding: 0.75rem 1rem;
+        }
+        .sidebar .nav-link:hover,
+        .sidebar .nav-link.active {
+            color: #fff;
+            background: rgba(255,255,255,.1);
+        }
+        .sidebar .nav-link i {
+            width: 24px;
+        }
+        .main-content {
+            margin-left: var(--sidebar-width);
+            min-height: 100vh;
+        }
+        .CodeMirror {
+            height: auto;
+            min-height: 200px;
+            border: 1px solid #dee2e6;
+            border-radius: 0.375rem;
+        }
+        .result-table {
+            max-height: 400px;
+            overflow: auto;
+        }
+        .query-type-badge {
+            font-size: 0.75rem;
+        }
+        .schema-diff pre {
+            max-height: 300px;
+            overflow: auto;
+        }
+        .status-success { color: #198754; }
+        .status-failed { color: #dc3545; }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- Sidebar -->
+    <nav class="sidebar position-fixed top-0 start-0 d-flex flex-column">
+        <div class="p-3 border-bottom border-secondary">
+            <a href="{% url 'query_manager:dashboard' %}" class="text-white text-decoration-none">
+                <h5 class="mb-0"><i class="bi bi-database"></i> QueryPilot</h5>
+            </a>
+        </div>
+
+        <ul class="nav flex-column mt-3">
+            <li class="nav-item">
+                <a href="{% url 'query_manager:dashboard' %}" class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">
+                    <i class="bi bi-speedometer2"></i> 대시보드
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="{% url 'query_manager:query_editor' %}" class="nav-link {% if 'query' in request.resolver_match.url_name %}active{% endif %}">
+                    <i class="bi bi-code-square"></i> 쿼리 에디터
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="{% url 'query_manager:connection_list' %}" class="nav-link {% if 'connection' in request.resolver_match.url_name %}active{% endif %}">
+                    <i class="bi bi-plug"></i> DB 연결
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="{% url 'query_manager:history_list' %}" class="nav-link {% if 'history' in request.resolver_match.url_name %}active{% endif %}">
+                    <i class="bi bi-clock-history"></i> 실행 이력
+                </a>
+            </li>
+        </ul>
+
+        <div class="mt-auto p-3 text-muted small">
+            <span>QueryPilot v1.0</span>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <div class="container-fluid py-4 px-4">
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- CodeMirror JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/mode/sql/sql.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/addon/hint/show-hint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/addon/hint/sql-hint.min.js"></script>
+
+    <script>
+        // CSRF Token helper
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+        const csrftoken = getCookie('csrftoken');
+    </script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

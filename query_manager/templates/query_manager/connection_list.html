@@ -1,0 +1,84 @@
+{% extends 'query_manager/base.html' %}
+
+{% block title %}DB 연결 - QueryPilot{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h2><i class="bi bi-plug"></i> DB 연결 관리</h2>
+    </div>
+    <div class="col-auto">
+        <a href="{% url 'query_manager:connection_create' %}" class="btn btn-primary">
+            <i class="bi bi-plus-lg"></i> 새 연결 추가
+        </a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        {% if connections %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>연결 이름</th>
+                            <th>호스트</th>
+                            <th>포트</th>
+                            <th>데이터베이스</th>
+                            <th>상태</th>
+                            <th>생성일</th>
+                            <th>작업</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for conn in connections %}
+                            <tr>
+                                <td>
+                                    <a href="{% url 'query_manager:connection_detail' conn.pk %}">
+                                        <strong>{{ conn.name }}</strong>
+                                    </a>
+                                </td>
+                                <td>{{ conn.host }}</td>
+                                <td>{{ conn.port }}</td>
+                                <td>{{ conn.database|default:"-" }}</td>
+                                <td>
+                                    {% if conn.is_active %}
+                                        <span class="badge bg-success">활성</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">비활성</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ conn.created_at|date:"Y-m-d" }}</td>
+                                <td>
+                                    <div class="btn-group btn-group-sm">
+                                        <a href="{% url 'query_manager:query_editor' %}?connection={{ conn.pk }}"
+                                           class="btn btn-outline-primary" title="쿼리 실행">
+                                            <i class="bi bi-play"></i>
+                                        </a>
+                                        <a href="{% url 'query_manager:connection_edit' conn.pk %}"
+                                           class="btn btn-outline-secondary" title="수정">
+                                            <i class="bi bi-pencil"></i>
+                                        </a>
+                                        <a href="{% url 'query_manager:connection_delete' conn.pk %}"
+                                           class="btn btn-outline-danger" title="삭제">
+                                            <i class="bi bi-trash"></i>
+                                        </a>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="text-center py-5">
+                <i class="bi bi-plug display-1 text-muted"></i>
+                <p class="text-muted mt-3">등록된 DB 연결이 없습니다.</p>
+                <a href="{% url 'query_manager:connection_create' %}" class="btn btn-primary">
+                    <i class="bi bi-plus-lg"></i> 첫 연결 추가하기
+                </a>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

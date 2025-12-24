@@ -1,0 +1,164 @@
+{% extends 'query_manager/base.html' %}
+
+{% block title %}대시보드 - QueryPilot{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h2><i class="bi bi-speedometer2"></i> 대시보드</h2>
+    </div>
+    <div class="col-auto">
+        <a href="{% url 'query_manager:query_editor' %}" class="btn btn-primary">
+            <i class="bi bi-code-square"></i> 쿼리 실행
+        </a>
+    </div>
+</div>
+
+<!-- Stats Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-subtitle mb-1 opacity-75">활성 연결</h6>
+                        <h2 class="mb-0">{{ stats.total_connections }}</h2>
+                    </div>
+                    <i class="bi bi-plug display-4 opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-subtitle mb-1 opacity-75">오늘 실행 쿼리</h6>
+                        <h2 class="mb-0">{{ stats.total_queries_today }}</h2>
+                    </div>
+                    <i class="bi bi-play-circle display-4 opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-danger text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-subtitle mb-1 opacity-75">오늘 실패 쿼리</h6>
+                        <h2 class="mb-0">{{ stats.failed_queries_today }}</h2>
+                    </div>
+                    <i class="bi bi-x-circle display-4 opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-info text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-subtitle mb-1 opacity-75">주간 쿼리</h6>
+                        <h2 class="mb-0">{{ stats.queries_this_week }}</h2>
+                    </div>
+                    <i class="bi bi-calendar-week display-4 opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Quick Access -->
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-lightning"></i> 빠른 연결</h6>
+            </div>
+            <div class="list-group list-group-flush">
+                {% for conn in connections %}
+                    <a href="{% url 'query_manager:query_editor' %}?connection={{ conn.pk }}"
+                       class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                        <span>
+                            <i class="bi bi-database"></i> {{ conn.name }}
+                        </span>
+                        <small class="text-muted">{{ conn.host }}:{{ conn.port }}</small>
+                    </a>
+                {% empty %}
+                    <div class="list-group-item text-center text-muted py-4">
+                        <i class="bi bi-plug display-6"></i>
+                        <p class="mb-0 mt-2">등록된 연결이 없습니다.</p>
+                        <a href="{% url 'query_manager:connection_create' %}" class="btn btn-sm btn-primary mt-2">
+                            <i class="bi bi-plus"></i> 연결 추가
+                        </a>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Queries -->
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0"><i class="bi bi-clock-history"></i> 최근 실행 쿼리</h6>
+                <a href="{% url 'query_manager:history_list' %}" class="btn btn-sm btn-outline-secondary">
+                    전체 보기
+                </a>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>연결</th>
+                                <th>쿼리</th>
+                                <th>유형</th>
+                                <th>상태</th>
+                                <th>실행 시간</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for q in recent_queries %}
+                                <tr>
+                                    <td>
+                                        <small>{{ q.connection.name }}</small>
+                                    </td>
+                                    <td>
+                                        <a href="{% url 'query_manager:history_detail' q.pk %}" class="text-decoration-none">
+                                            <code class="text-truncate d-inline-block" style="max-width: 300px;">
+                                                {{ q.query_text|truncatechars:50 }}
+                                            </code>
+                                        </a>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-secondary query-type-badge">{{ q.query_type }}</span>
+                                    </td>
+                                    <td>
+                                        {% if q.status == 'SUCCESS' %}
+                                            <span class="badge bg-success">성공</span>
+                                        {% else %}
+                                            <span class="badge bg-danger">실패</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <small class="text-muted">{{ q.executed_at|date:"m/d H:i" }}</small>
+                                    </td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="5" class="text-center text-muted py-4">
+                                        실행된 쿼리가 없습니다.
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
