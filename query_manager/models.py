@@ -93,9 +93,9 @@ class QueryExecution(models.Model):
         verbose_name_plural = '쿼리 실행 이력 목록'
         ordering = ['-executed_at']
         indexes = [
-            models.Index(fields=['connection', '-executed_at']),
-            models.Index(fields=['query_type']),
-            models.Index(fields=['status']),
+            models.Index(fields=['connection', '-executed_at'], name='query_manag_connect_idx'),
+            models.Index(fields=['query_type'], name='query_manag_query_t_idx'),
+            models.Index(fields=['status'], name='query_manag_status_idx'),
         ]
 
     def __str__(self):
@@ -150,7 +150,7 @@ class SchemaVersion(models.Model):
         ordering = ['connection', 'table_name', '-version']
         unique_together = ['connection', 'table_name', 'version']
         indexes = [
-            models.Index(fields=['connection', 'table_name']),
+            models.Index(fields=['connection', 'table_name'], name='query_manag_conn_table_idx'),
         ]
 
     def __str__(self):
