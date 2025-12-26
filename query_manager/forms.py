@@ -85,12 +85,25 @@ class HistoryFilterForm(forms.Form):
         ('FAILED', '실패'),
     ]
 
+    CATEGORY_CHOICES = [
+        ('', '모든 카테고리'),
+        ('DDL', 'DDL (CREATE, ALTER, DROP)'),
+        ('DML', 'DML (INSERT, UPDATE, DELETE)'),
+        ('DQL', 'DQL (SELECT)'),
+    ]
+
     connection = forms.ModelChoiceField(
         queryset=DatabaseConnection.objects.all(),
         required=False,
         widget=forms.Select(attrs={'class': 'form-select'}),
         label='DB 연결',
         empty_label='모든 연결'
+    )
+    category = forms.ChoiceField(
+        choices=CATEGORY_CHOICES,
+        required=False,
+        widget=forms.Select(attrs={'class': 'form-select'}),
+        label='카테고리'
     )
     query_type = forms.ChoiceField(
         choices=QUERY_TYPE_CHOICES,
@@ -118,4 +131,18 @@ class HistoryFilterForm(forms.Form):
         required=False,
         widget=forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
         label='종료일'
+    )
+
+
+class VersionTagForm(forms.Form):
+    """버전 태그 폼"""
+    tag_name = forms.CharField(
+        max_length=100,
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': '태그명'}),
+        label='태그명'
+    )
+    memo = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': '메모'}),
+        label='메모'
     )

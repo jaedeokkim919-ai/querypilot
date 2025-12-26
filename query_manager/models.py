@@ -80,6 +80,14 @@ class QueryExecution(models.Model):
     result_data = models.JSONField(null=True, blank=True, verbose_name='결과 데이터')
     result_columns = models.JSONField(null=True, blank=True, verbose_name='결과 컬럼')
 
+    # 검수 워크플로우 지원
+    operator = models.CharField(max_length=100, blank=True, verbose_name='작업자')
+    validation_result = models.JSONField(null=True, blank=True, verbose_name='검증 결과')
+
+    # 다중 쿼리 배치 지원
+    batch_id = models.CharField(max_length=50, blank=True, verbose_name='배치 ID')
+    query_index = models.IntegerField(default=0, verbose_name='배치 내 순서')
+
     class Meta:
         verbose_name = '쿼리 실행 이력'
         verbose_name_plural = '쿼리 실행 이력 목록'
@@ -131,6 +139,10 @@ class SchemaVersion(models.Model):
         related_name='schema_versions',
         verbose_name='관련 쿼리'
     )
+    # 추가 필드
+    executed_by = models.CharField(max_length=100, blank=True, verbose_name='실행자')
+    change_summary = models.TextField(blank=True, verbose_name='변경 요약')
+    ddl_type = models.CharField(max_length=50, blank=True, verbose_name='DDL 유형')
 
     class Meta:
         verbose_name = '스키마 버전'
@@ -143,3 +155,25 @@ class SchemaVersion(models.Model):
 
     def __str__(self):
         return f"{self.connection.name} - {self.table_name} v{self.version}"
+
+
+class SchemaVersionTag(models.Model):
+    """스키마 버전 태그/메모 모델"""
+    schema_version = models.ForeignKey(
+        SchemaVersion,
+        on_delete=models.CASCADE,
+        related_name='tags',
+        verbose_name='스키마 버전'
+    )
+    tag_name = models.CharField(max_length=100, verbose_name='태그명')
+    memo = models.TextField(blank=True, verbose_name='메모')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='생성일')
+    created_by = models.CharField(max_length=100, blank=True, verbose_name='작성자')
+
+    class Meta:
+        verbose_name = '스키마 버전 태그'
+        verbose_name_plural = '스키마 버전 태그 목록'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.schema_version} - {self.tag_name}"

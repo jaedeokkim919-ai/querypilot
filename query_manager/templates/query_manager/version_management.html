@@ -1,0 +1,655 @@
+{% extends 'query_manager/base.html' %}
+
+{% block title %}버전 관리 - QueryPilot{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h2><i class="bi bi-git"></i> 스키마 버전 관리</h2>
+        <p class="text-muted">테이블별 스키마 변경 이력을 관리하고 버전을 비교합니다.</p>
+    </div>
+</div>
+
+<!-- Connection & Table Selection -->
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-plug"></i> 연결 선택
+            </div>
+            <div class="card-body">
+                <select id="connectionSelect" class="form-select">
+                    <option value="">연결을 선택하세요...</option>
+                    {% for conn in connections %}
+                        <option value="{{ conn.pk }}" {% if selected_connection == conn.pk %}selected{% endif %}>
+                            {{ conn.name }} ({{ conn.host }}{% if conn.database %}:{{ conn.database }}{% endif %})
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-table"></i> 버전이 있는 테이블</span>
+                <span id="tableCount" class="badge bg-secondary">0개</span>
+            </div>
+            <div class="card-body">
+                <div id="tablesLoading" class="text-center py-3" style="display: none;">
+                    <div class="spinner-border spinner-border-sm text-primary"></div>
+                    <span class="ms-2">불러오는 중...</span>
+                </div>
+                <div id="tablesContent">
+                    <div class="text-muted text-center py-3">
+                        연결을 선택하면 버전이 있는 테이블 목록이 표시됩니다.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Version Timeline -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-clock-history"></i> 버전 타임라인</span>
+                <span id="selectedTableName" class="badge bg-primary" style="display: none;"></span>
+            </div>
+            <div class="card-body">
+                <div id="timelineLoading" class="text-center py-5" style="display: none;">
+                    <div class="spinner-border text-primary"></div>
+                    <p class="mt-2 text-muted">버전 정보를 불러오는 중...</p>
+                </div>
+                <div id="timelineContent">
+                    <div class="text-muted text-center py-5">
+                        <i class="bi bi-diagram-3 display-4"></i>
+                        <p class="mt-3">테이블을 선택하면 버전 타임라인이 표시됩니다.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Version Comparison -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-arrow-left-right"></i> 버전 비교
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-5">
+                        <label class="form-label">비교 기준 버전 (이전)</label>
+                        <select id="compareVersionFrom" class="form-select" disabled>
+                            <option value="">버전 선택...</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end justify-content-center">
+                        <i class="bi bi-arrow-right fs-4 text-muted"></i>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label">비교 대상 버전 (이후)</label>
+                        <select id="compareVersionTo" class="form-select" disabled>
+                            <option value="">버전 선택...</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="button" id="btnCompare" class="btn btn-primary" disabled>
+                        <i class="bi bi-arrow-left-right"></i> 비교하기
+                    </button>
+                    <button type="button" id="btnGenerateRollback" class="btn btn-warning" disabled>
+                        <i class="bi bi-arrow-counterclockwise"></i> 롤백 DDL 생성
+                    </button>
+                </div>
+
+                <!-- Comparison Result -->
+                <div id="comparisonResult" class="mt-4" style="display: none;">
+                    <h6><i class="bi bi-file-diff"></i> 비교 결과</h6>
+                    <ul class="nav nav-tabs" role="tablist">
+                        <li class="nav-item">
+                            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#cmpBefore">BEFORE</button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#cmpAfter">AFTER</button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#cmpDiff">DIFF</button>
+                        </li>
+                    </ul>
+                    <div class="tab-content border border-top-0 rounded-bottom p-3">
+                        <div class="tab-pane fade show active" id="cmpBefore">
+                            <pre id="cmpBeforeContent" class="bg-light p-3 rounded" style="max-height: 400px; overflow: auto;"></pre>
+                        </div>
+                        <div class="tab-pane fade" id="cmpAfter">
+                            <pre id="cmpAfterContent" class="bg-light p-3 rounded" style="max-height: 400px; overflow: auto;"></pre>
+                        </div>
+                        <div class="tab-pane fade" id="cmpDiff">
+                            <pre id="cmpDiffContent" class="p-3 rounded" style="max-height: 400px; overflow: auto; background: #1e1e1e; color: #d4d4d4;"></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Rollback DDL Result -->
+                <div id="rollbackResult" class="mt-4" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0"><i class="bi bi-arrow-counterclockwise"></i> 롤백 DDL</h6>
+                        <button type="button" id="btnCopyRollback" class="btn btn-sm btn-outline-secondary">
+                            <i class="bi bi-clipboard"></i> 복사
+                        </button>
+                    </div>
+                    <pre id="rollbackDDLContent" class="bg-dark text-light p-3 rounded" style="max-height: 300px; overflow: auto;"></pre>
+                    <div class="alert alert-warning mt-2 mb-0">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <strong>주의:</strong> 롤백 DDL은 자동 실행되지 않습니다. 쿼리 에디터에서 직접 검토 후 실행하세요.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tag Modal -->
+<div class="modal fade" id="tagModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-tag"></i> 버전 태그 관리</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="tagVersionId">
+                <div class="mb-3">
+                    <label class="form-label">태그명</label>
+                    <input type="text" id="tagName" class="form-control" placeholder="예: v1.0.0, release-2024-01">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">메모</label>
+                    <textarea id="tagMemo" class="form-control" rows="3" placeholder="버전에 대한 메모를 입력하세요..."></textarea>
+                </div>
+                <div id="existingTags" class="mt-3" style="display: none;">
+                    <h6>기존 태그</h6>
+                    <div id="tagsList"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                <button type="button" id="btnSaveTag" class="btn btn-primary">
+                    <i class="bi bi-check-lg"></i> 저장
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .version-timeline {
+        position: relative;
+        padding-left: 30px;
+    }
+    .version-timeline::before {
+        content: '';
+        position: absolute;
+        left: 10px;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: #dee2e6;
+    }
+    .version-item {
+        position: relative;
+        padding: 15px;
+        margin-bottom: 15px;
+        background: #f8f9fa;
+        border-radius: 8px;
+        border-left: 3px solid #0d6efd;
+    }
+    .version-item::before {
+        content: '';
+        position: absolute;
+        left: -24px;
+        top: 20px;
+        width: 12px;
+        height: 12px;
+        background: #0d6efd;
+        border-radius: 50%;
+        border: 2px solid #fff;
+    }
+    .version-item.version-tagged {
+        border-left-color: #198754;
+    }
+    .version-item.version-tagged::before {
+        background: #198754;
+    }
+    .table-pill {
+        display: inline-block;
+        padding: 5px 12px;
+        margin: 3px;
+        background: #e9ecef;
+        border-radius: 20px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .table-pill:hover {
+        background: #0d6efd;
+        color: white;
+    }
+    .table-pill.active {
+        background: #0d6efd;
+        color: white;
+    }
+    .diff-added {
+        background-color: rgba(40, 167, 69, 0.2);
+        color: #28a745;
+    }
+    .diff-removed {
+        background-color: rgba(220, 53, 69, 0.2);
+        color: #dc3545;
+    }
+    .diff-context {
+        color: #6c757d;
+    }
+    .version-tag {
+        display: inline-block;
+        padding: 2px 8px;
+        background: #198754;
+        color: white;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        margin-right: 5px;
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    let currentConnectionId = null;
+    let currentTableName = null;
+    let versionsData = [];
+
+    const connectionSelect = document.getElementById('connectionSelect');
+    const tablesContent = document.getElementById('tablesContent');
+    const tablesLoading = document.getElementById('tablesLoading');
+    const tableCount = document.getElementById('tableCount');
+    const timelineContent = document.getElementById('timelineContent');
+    const timelineLoading = document.getElementById('timelineLoading');
+    const selectedTableName = document.getElementById('selectedTableName');
+    const compareVersionFrom = document.getElementById('compareVersionFrom');
+    const compareVersionTo = document.getElementById('compareVersionTo');
+    const btnCompare = document.getElementById('btnCompare');
+    const btnGenerateRollback = document.getElementById('btnGenerateRollback');
+
+    // Connection change handler
+    connectionSelect.addEventListener('change', function() {
+        currentConnectionId = this.value;
+        currentTableName = null;
+        resetTimeline();
+        resetComparison();
+
+        if (currentConnectionId) {
+            loadTablesWithVersions(currentConnectionId);
+        } else {
+            tablesContent.innerHTML = '<div class="text-muted text-center py-3">연결을 선택하면 버전이 있는 테이블 목록이 표시됩니다.</div>';
+            tableCount.textContent = '0개';
+        }
+    });
+
+    // Load tables with versions
+    function loadTablesWithVersions(connectionId) {
+        tablesLoading.style.display = 'block';
+        tablesContent.innerHTML = '';
+
+        fetch(`{% url 'query_manager:version_management' %}?connection_id=${connectionId}&action=get_tables`)
+            .then(response => response.json())
+            .then(data => {
+                tablesLoading.style.display = 'none';
+
+                if (data.tables && data.tables.length > 0) {
+                    tableCount.textContent = data.tables.length + '개';
+                    tablesContent.innerHTML = data.tables.map(table =>
+                        `<span class="table-pill" data-table="${table.table_name}">
+                            <i class="bi bi-table"></i> ${table.table_name}
+                            <span class="badge bg-secondary ms-1">${table.version_count}</span>
+                        </span>`
+                    ).join('');
+
+                    // Add click handlers
+                    document.querySelectorAll('.table-pill').forEach(pill => {
+                        pill.addEventListener('click', function() {
+                            document.querySelectorAll('.table-pill').forEach(p => p.classList.remove('active'));
+                            this.classList.add('active');
+                            currentTableName = this.dataset.table;
+                            loadVersionTimeline(currentConnectionId, currentTableName);
+                        });
+                    });
+                } else {
+                    tablesContent.innerHTML = '<div class="text-muted text-center py-3">버전 기록이 있는 테이블이 없습니다.</div>';
+                    tableCount.textContent = '0개';
+                }
+            })
+            .catch(error => {
+                tablesLoading.style.display = 'none';
+                tablesContent.innerHTML = '<div class="alert alert-danger">테이블 목록을 불러오는 중 오류가 발생했습니다.</div>';
+                console.error('Error loading tables:', error);
+            });
+    }
+
+    // Load version timeline
+    function loadVersionTimeline(connectionId, tableName) {
+        timelineLoading.style.display = 'block';
+        timelineContent.innerHTML = '';
+        selectedTableName.style.display = 'inline-block';
+        selectedTableName.textContent = tableName;
+
+        fetch(`{% url 'query_manager:version_management' %}timeline/${connectionId}/${tableName}/`)
+            .then(response => response.json())
+            .then(data => {
+                timelineLoading.style.display = 'none';
+
+                if (data.versions && data.versions.length > 0) {
+                    versionsData = data.versions;
+                    renderTimeline(data.versions);
+                    populateVersionSelects(data.versions);
+                } else {
+                    timelineContent.innerHTML = '<div class="text-muted text-center py-3">이 테이블의 버전 기록이 없습니다.</div>';
+                    resetComparison();
+                }
+            })
+            .catch(error => {
+                timelineLoading.style.display = 'none';
+                timelineContent.innerHTML = '<div class="alert alert-danger">버전 정보를 불러오는 중 오류가 발생했습니다.</div>';
+                console.error('Error loading timeline:', error);
+            });
+    }
+
+    // Render timeline
+    function renderTimeline(versions) {
+        const html = `<div class="version-timeline">
+            ${versions.map((v, index) => `
+                <div class="version-item ${v.tags && v.tags.length > 0 ? 'version-tagged' : ''}">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <strong>버전 ${v.version}</strong>
+                            ${v.tags ? v.tags.map(t => `<span class="version-tag">${t.tag_name}</span>`).join('') : ''}
+                            <span class="badge bg-secondary ms-2">${v.ddl_type || 'DDL'}</span>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-primary btn-add-tag"
+                                data-version-id="${v.id}" data-bs-toggle="modal" data-bs-target="#tagModal">
+                            <i class="bi bi-tag"></i>
+                        </button>
+                    </div>
+                    <div class="text-muted small mt-1">
+                        <i class="bi bi-calendar"></i> ${v.captured_at}
+                        ${v.executed_by ? `<span class="ms-2"><i class="bi bi-person"></i> ${v.executed_by}</span>` : ''}
+                    </div>
+                    ${v.change_summary ? `<div class="mt-2 small">${v.change_summary}</div>` : ''}
+                    <div class="mt-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary btn-view-schema" data-version-id="${v.id}">
+                            <i class="bi bi-eye"></i> 스키마 보기
+                        </button>
+                    </div>
+                </div>
+            `).join('')}
+        </div>`;
+
+        timelineContent.innerHTML = html;
+
+        // Add tag button handlers
+        document.querySelectorAll('.btn-add-tag').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const versionId = this.dataset.versionId;
+                document.getElementById('tagVersionId').value = versionId;
+                document.getElementById('tagName').value = '';
+                document.getElementById('tagMemo').value = '';
+                loadExistingTags(versionId);
+            });
+        });
+
+        // Add view schema button handlers
+        document.querySelectorAll('.btn-view-schema').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const versionId = this.dataset.versionId;
+                const version = versionsData.find(v => v.id == versionId);
+                if (version) {
+                    alert(`스키마 (버전 ${version.version}):\n\n${version.schema_definition || '(스키마 정보 없음)'}`);
+                }
+            });
+        });
+    }
+
+    // Populate version select dropdowns
+    function populateVersionSelects(versions) {
+        const options = versions.map(v =>
+            `<option value="${v.id}">버전 ${v.version} (${v.captured_at})</option>`
+        ).join('');
+
+        compareVersionFrom.innerHTML = '<option value="">버전 선택...</option>' + options;
+        compareVersionTo.innerHTML = '<option value="">버전 선택...</option>' + options;
+        compareVersionFrom.disabled = false;
+        compareVersionTo.disabled = false;
+        btnCompare.disabled = false;
+        btnGenerateRollback.disabled = false;
+    }
+
+    // Reset timeline
+    function resetTimeline() {
+        timelineContent.innerHTML = '<div class="text-muted text-center py-5"><i class="bi bi-diagram-3 display-4"></i><p class="mt-3">테이블을 선택하면 버전 타임라인이 표시됩니다.</p></div>';
+        selectedTableName.style.display = 'none';
+        versionsData = [];
+    }
+
+    // Reset comparison
+    function resetComparison() {
+        compareVersionFrom.innerHTML = '<option value="">버전 선택...</option>';
+        compareVersionTo.innerHTML = '<option value="">버전 선택...</option>';
+        compareVersionFrom.disabled = true;
+        compareVersionTo.disabled = true;
+        btnCompare.disabled = true;
+        btnGenerateRollback.disabled = true;
+        document.getElementById('comparisonResult').style.display = 'none';
+        document.getElementById('rollbackResult').style.display = 'none';
+    }
+
+    // Compare versions
+    btnCompare.addEventListener('click', function() {
+        const fromId = compareVersionFrom.value;
+        const toId = compareVersionTo.value;
+
+        if (!fromId || !toId) {
+            alert('비교할 두 버전을 선택하세요.');
+            return;
+        }
+
+        if (fromId === toId) {
+            alert('서로 다른 버전을 선택하세요.');
+            return;
+        }
+
+        fetch(`{% url 'query_manager:version_compare' %}?from_id=${fromId}&to_id=${toId}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+
+                document.getElementById('cmpBeforeContent').textContent = data.before_schema || '(스키마 없음)';
+                document.getElementById('cmpAfterContent').textContent = data.after_schema || '(스키마 없음)';
+
+                if (data.diff_lines && data.diff_lines.length > 0) {
+                    const diffHtml = data.diff_lines.map(line => {
+                        if (line.startsWith('+')) {
+                            return `<span class="diff-added">${escapeHtml(line)}</span>`;
+                        } else if (line.startsWith('-')) {
+                            return `<span class="diff-removed">${escapeHtml(line)}</span>`;
+                        } else if (line.startsWith('@@')) {
+                            return `<span class="text-info">${escapeHtml(line)}</span>`;
+                        } else {
+                            return `<span class="diff-context">${escapeHtml(line)}</span>`;
+                        }
+                    }).join('\n');
+                    document.getElementById('cmpDiffContent').innerHTML = diffHtml;
+                } else {
+                    document.getElementById('cmpDiffContent').textContent = '(변경 사항 없음)';
+                }
+
+                document.getElementById('comparisonResult').style.display = 'block';
+            })
+            .catch(error => {
+                alert('버전 비교 중 오류가 발생했습니다.');
+                console.error('Error comparing versions:', error);
+            });
+    });
+
+    // Generate rollback DDL
+    btnGenerateRollback.addEventListener('click', function() {
+        const fromId = compareVersionFrom.value;  // target (rollback to)
+        const toId = compareVersionTo.value;      // current
+
+        if (!fromId || !toId) {
+            alert('롤백 대상 버전과 현재 버전을 선택하세요.');
+            return;
+        }
+
+        fetch(`{% url 'query_manager:version_management' %}${toId}/rollback-ddl/?target_version_id=${fromId}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+
+                document.getElementById('rollbackDDLContent').textContent = data.rollback_ddl || '-- 롤백 DDL을 생성할 수 없습니다.';
+                document.getElementById('rollbackResult').style.display = 'block';
+            })
+            .catch(error => {
+                alert('롤백 DDL 생성 중 오류가 발생했습니다.');
+                console.error('Error generating rollback DDL:', error);
+            });
+    });
+
+    // Copy rollback DDL
+    document.getElementById('btnCopyRollback').addEventListener('click', function() {
+        const ddl = document.getElementById('rollbackDDLContent').textContent;
+        navigator.clipboard.writeText(ddl).then(() => {
+            this.innerHTML = '<i class="bi bi-check"></i> 복사됨';
+            setTimeout(() => {
+                this.innerHTML = '<i class="bi bi-clipboard"></i> 복사';
+            }, 2000);
+        });
+    });
+
+    // Load existing tags
+    function loadExistingTags(versionId) {
+        fetch(`{% url 'query_manager:version_management' %}${versionId}/tag/`)
+            .then(response => response.json())
+            .then(data => {
+                const existingTagsDiv = document.getElementById('existingTags');
+                const tagsList = document.getElementById('tagsList');
+
+                if (data.tags && data.tags.length > 0) {
+                    existingTagsDiv.style.display = 'block';
+                    tagsList.innerHTML = data.tags.map(tag => `
+                        <div class="d-flex justify-content-between align-items-center p-2 mb-1 bg-light rounded">
+                            <div>
+                                <span class="version-tag">${tag.tag_name}</span>
+                                <small class="text-muted">${tag.memo || ''}</small>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-danger btn-delete-tag" data-tag-id="${tag.id}">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    `).join('');
+
+                    // Add delete handlers
+                    document.querySelectorAll('.btn-delete-tag').forEach(btn => {
+                        btn.addEventListener('click', function() {
+                            if (confirm('이 태그를 삭제하시겠습니까?')) {
+                                deleteTag(versionId, this.dataset.tagId);
+                            }
+                        });
+                    });
+                } else {
+                    existingTagsDiv.style.display = 'none';
+                }
+            });
+    }
+
+    // Save tag
+    document.getElementById('btnSaveTag').addEventListener('click', function() {
+        const versionId = document.getElementById('tagVersionId').value;
+        const tagName = document.getElementById('tagName').value.trim();
+        const memo = document.getElementById('tagMemo').value.trim();
+
+        if (!tagName) {
+            alert('태그명을 입력하세요.');
+            return;
+        }
+
+        fetch(`{% url 'query_manager:version_management' %}${versionId}/tag/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrftoken
+            },
+            body: JSON.stringify({ tag_name: tagName, memo: memo })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                loadExistingTags(versionId);
+                document.getElementById('tagName').value = '';
+                document.getElementById('tagMemo').value = '';
+                // Refresh timeline
+                if (currentConnectionId && currentTableName) {
+                    loadVersionTimeline(currentConnectionId, currentTableName);
+                }
+            } else {
+                alert(data.error || '태그 저장 중 오류가 발생했습니다.');
+            }
+        });
+    });
+
+    // Delete tag
+    function deleteTag(versionId, tagId) {
+        fetch(`{% url 'query_manager:version_management' %}${versionId}/tag/?tag_id=${tagId}`, {
+            method: 'DELETE',
+            headers: {
+                'X-CSRFToken': csrftoken
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                loadExistingTags(versionId);
+                // Refresh timeline
+                if (currentConnectionId && currentTableName) {
+                    loadVersionTimeline(currentConnectionId, currentTableName);
+                }
+            } else {
+                alert(data.error || '태그 삭제 중 오류가 발생했습니다.');
+            }
+        });
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Auto-select connection if provided
+    {% if selected_connection %}
+    connectionSelect.dispatchEvent(new Event('change'));
+    {% endif %}
+});
+</script>
+{% endblock %}

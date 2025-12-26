@@ -13,7 +13,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 from datetime import timedelta
 
-from .models import DatabaseConnection, QueryExecution, SchemaVersion
+from .models import DatabaseConnection, QueryExecution, SchemaVersion, SchemaVersionTag
 from .forms import (
     DatabaseConnectionForm,
     DatabaseConnectionEditForm,
@@ -241,6 +241,15 @@ class HistoryListView(View):
             if form.cleaned_data.get('date_to'):
                 queryset = queryset.filter(executed_at__date__lte=form.cleaned_data['date_to'])
 
+            # 카테고리 필터
+            category = form.cleaned_data.get('category')
+            if category == 'DDL':
+                queryset = queryset.filter(query_type='DDL')
+            elif category == 'DML':
+                queryset = queryset.filter(query_type__in=['INSERT', 'UPDATE', 'DELETE'])
+            elif category == 'DQL':
+                queryset = queryset.filter(query_type='SELECT')
+
         # 페이지네이션
         from django.core.paginator import Paginator
         paginator = Paginator(queryset, 50)
@@ -348,3 +357,351 @@ class ApiTableSchemaView(View):
         service = QueryService(connection)
         schema = service.get_table_schema(table_name)
         return JsonResponse({'schema': schema})
+
+
+class ApiTablesWithDatabaseView(View):
+    """특정 데이터베이스의 테이블 목록 API"""
+
+    def get(self, request, pk, database):
+        connection = get_object_or_404(DatabaseConnection, pk=pk)
+        service = QueryService(connection)
+        tables = service.get_tables_with_database(database)
+        return JsonResponse({'tables': tables})
+
+
+# ============ Query Review & Batch Execution ============
+class QueryReviewView(View):
+    """쿼리 검수 API"""
+
+    def post(self, request):
+        try:
+            data = json.loads(request.body)
+            connection_id = data.get('connection_id')
+            query_text = data.get('query', '').strip()
+            operator = data.get('operator', '').strip()
+
+            if not connection_id:
+                return JsonResponse({'success': False, 'error': '연결을 선택해주세요.'})
+
+            if not query_text:
+                return JsonResponse({'success': False, 'error': '쿼리를 입력해주세요.'})
+
+            if not operator:
+                return JsonResponse({'success': False, 'error': '작업자를 입력해주세요.'})
+
+            connection = get_object_or_404(DatabaseConnection, pk=connection_id)
+            service = QueryService(connection)
+
+            # 쿼리 분리
+            queries = service.split_queries(query_text)
+
+            # 각 쿼리 검증
+            validation_results = []
+            all_valid = True
+            has_dangerous = False
+
+            for idx, query in enumerate(queries):
+                result = service.validate_query(query)
+                result['index'] = idx
+                result['query'] = query[:100] + '...' if len(query) > 100 else query
+                result['full_query'] = query
+                validation_results.append(result)
+
+                if not result['valid']:
+                    all_valid = False
+                if result['is_dangerous']:
+                    has_dangerous = True
+
+            return JsonResponse({
+                'success': True,
+                'all_valid': all_valid,
+                'has_dangerous': has_dangerous,
+                'query_count': len(queries),
+                'validation_results': validation_results,
+                'operator': operator
+            })
+
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)})
+
+
+class QueryBatchExecuteView(View):
+    """배치 쿼리 실행 API"""
+
+    def post(self, request):
+        try:
+            data = json.loads(request.body)
+            connection_id = data.get('connection_id')
+            queries = data.get('queries', [])
+            operator = data.get('operator', '').strip()
+
+            if not connection_id:
+                return JsonResponse({'success': False, 'error': '연결을 선택해주세요.'})
+
+            if not queries:
+                return JsonResponse({'success': False, 'error': '실행할 쿼리가 없습니다.'})
+
+            if not operator:
+                return JsonResponse({'success': False, 'error': '작업자를 입력해주세요.'})
+
+            connection = get_object_or_404(DatabaseConnection, pk=connection_id)
+            service = QueryService(connection)
+
+            result = service.execute_batch(queries, operator)
+            return JsonResponse(result)
+
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)})
+
+
+# ============ Version Management Views ============
+class VersionManagementView(View):
+    """버전 관리 메인 뷰"""
+
+    def get(self, request):
+        # AJAX 요청: 테이블 목록 조회
+        action = request.GET.get('action')
+        connection_id = request.GET.get('connection_id') or request.GET.get('connection')
+
+        if action == 'get_tables' and connection_id:
+            try:
+                connection = DatabaseConnection.objects.get(pk=connection_id)
+                tables = SchemaVersion.objects.filter(
+                    connection=connection
+                ).values('table_name').annotate(
+                    version_count=Count('id')
+                ).order_by('table_name')
+
+                return JsonResponse({
+                    'tables': list(tables)
+                })
+            except DatabaseConnection.DoesNotExist:
+                return JsonResponse({'error': '연결을 찾을 수 없습니다.'})
+
+        # 일반 페이지 렌더링
+        connections = DatabaseConnection.objects.filter(is_active=True)
+
+        selected_connection = None
+        tables_with_versions = []
+        selected_table = request.GET.get('table')
+        versions = []
+
+        if connection_id:
+            try:
+                selected_connection = DatabaseConnection.objects.get(pk=connection_id)
+
+                # 버전이 있는 테이블 목록
+                tables_with_versions = SchemaVersion.objects.filter(
+                    connection=selected_connection
+                ).values('table_name').annotate(
+                    version_count=Count('id'),
+                    latest_version=Count('version')
+                ).order_by('table_name')
+
+                # 선택된 테이블의 버전 목록
+                if selected_table:
+                    versions = SchemaVersion.objects.filter(
+                        connection=selected_connection,
+                        table_name=selected_table
+                    ).order_by('-version')
+
+            except DatabaseConnection.DoesNotExist:
+                pass
+
+        context = {
+            'connections': connections,
+            'selected_connection': int(connection_id) if connection_id else None,
+            'tables_with_versions': tables_with_versions,
+            'selected_table': selected_table,
+            'versions': versions,
+        }
+        return render(request, 'query_manager/version_management.html', context)
+
+
+class VersionTimelineView(View):
+    """버전 타임라인 API"""
+
+    def get(self, request, connection_id, table_name):
+        connection = get_object_or_404(DatabaseConnection, pk=connection_id)
+
+        versions_qs = SchemaVersion.objects.filter(
+            connection=connection,
+            table_name=table_name
+        ).order_by('-version')
+
+        versions = []
+        for v in versions_qs:
+            tags = list(v.tags.values('id', 'tag_name', 'memo', 'created_by'))
+
+            versions.append({
+                'id': v.id,
+                'version': v.version,
+                'captured_at': v.created_at.strftime('%Y-%m-%d %H:%M:%S') if v.created_at else None,
+                'executed_by': v.executed_by,
+                'change_summary': v.change_summary,
+                'ddl_type': v.ddl_type,
+                'schema_definition': v.schema_definition,
+                'tags': tags
+            })
+
+        return JsonResponse({'versions': versions, 'table_name': table_name})
+
+
+class VersionCompareView(View):
+    """버전 비교 API"""
+
+    def get(self, request):
+        # 파라미터 호환성 (v1/v2 또는 from_id/to_id)
+        version1_id = request.GET.get('from_id') or request.GET.get('v1')
+        version2_id = request.GET.get('to_id') or request.GET.get('v2')
+
+        if not version1_id or not version2_id:
+            return JsonResponse({'error': '두 버전을 선택해주세요.'})
+
+        try:
+            v1 = SchemaVersion.objects.get(pk=version1_id)
+            service = QueryService(v1.connection)
+            result = service.compare_schema_versions(int(version1_id), int(version2_id))
+            return JsonResponse(result)
+        except SchemaVersion.DoesNotExist:
+            return JsonResponse({'error': '버전을 찾을 수 없습니다.'})
+        except Exception as e:
+            return JsonResponse({'error': str(e)})
+
+
+class VersionRollbackDDLView(View):
+    """롤백 DDL 생성 API"""
+
+    def get(self, request, version_id):
+        # 파라미터 호환성 (to 또는 target_version_id)
+        target_version_id = request.GET.get('target_version_id') or request.GET.get('to')
+
+        if not target_version_id:
+            return JsonResponse({'error': '롤백 대상 버전을 선택해주세요.'})
+
+        try:
+            current_version = SchemaVersion.objects.get(pk=version_id)
+            service = QueryService(current_version.connection)
+            result = service.generate_rollback_ddl(int(version_id), int(target_version_id))
+            return JsonResponse(result)
+        except SchemaVersion.DoesNotExist:
+            return JsonResponse({'error': '버전을 찾을 수 없습니다.'})
+        except Exception as e:
+            return JsonResponse({'error': str(e)})
+
+
+class VersionTagView(View):
+    """버전 태그/메모 CRUD API"""
+
+    def get(self, request, version_id):
+        """태그 목록 조회"""
+        try:
+            version = SchemaVersion.objects.get(pk=version_id)
+            tags = list(version.tags.values('id', 'tag_name', 'memo', 'created_at', 'created_by'))
+            return JsonResponse({'tags': tags})
+        except SchemaVersion.DoesNotExist:
+            return JsonResponse({'error': '버전을 찾을 수 없습니다.'})
+
+    def post(self, request, version_id):
+        """태그 추가"""
+        try:
+            data = json.loads(request.body)
+            version = SchemaVersion.objects.get(pk=version_id)
+
+            tag = SchemaVersionTag.objects.create(
+                schema_version=version,
+                tag_name=data.get('tag_name', ''),
+                memo=data.get('memo', ''),
+                created_by=data.get('created_by', '')
+            )
+
+            return JsonResponse({
+                'success': True,
+                'tag': {
+                    'id': tag.id,
+                    'tag_name': tag.tag_name,
+                    'memo': tag.memo,
+                    'created_at': tag.created_at.isoformat(),
+                    'created_by': tag.created_by
+                }
+            })
+        except SchemaVersion.DoesNotExist:
+            return JsonResponse({'success': False, 'error': '버전을 찾을 수 없습니다.'})
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)})
+
+    def delete(self, request, version_id):
+        """태그 삭제"""
+        try:
+            # DELETE 요청은 query parameter에서 tag_id를 가져옴
+            tag_id = request.GET.get('tag_id')
+
+            if not tag_id:
+                return JsonResponse({'success': False, 'error': '태그 ID가 필요합니다.'})
+
+            tag = SchemaVersionTag.objects.get(pk=tag_id, schema_version_id=version_id)
+            tag.delete()
+
+            return JsonResponse({'success': True})
+        except SchemaVersionTag.DoesNotExist:
+            return JsonResponse({'success': False, 'error': '태그를 찾을 수 없습니다.'})
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)})
+
+
+class HistorySchemaCompareView(View):
+    """히스토리 스키마 비교 API"""
+
+    def get(self, request, pk):
+        import difflib
+
+        execution = get_object_or_404(QueryExecution, pk=pk)
+
+        if execution.query_type != 'DDL':
+            return JsonResponse({'error': 'DDL 쿼리가 아닙니다.'})
+
+        before_schema = execution.schema_before or ''
+        after_schema = execution.schema_after or ''
+
+        # 테이블명 추출 시도
+        table_name = ''
+        query_upper = execution.query_text.upper()
+        for keyword in ['TABLE', 'INDEX ON']:
+            if keyword in query_upper:
+                parts = execution.query_text.split()
+                try:
+                    idx = [p.upper() for p in parts].index(keyword.split()[0])
+                    if keyword == 'INDEX ON':
+                        idx = [p.upper() for p in parts].index('ON')
+                    table_name = parts[idx + 1].strip('`"[]();')
+                    break
+                except (ValueError, IndexError):
+                    pass
+
+        # Diff 계산
+        diff_lines = []
+        if before_schema or after_schema:
+            before_lines = before_schema.splitlines(keepends=True)
+            after_lines = after_schema.splitlines(keepends=True)
+            diff = difflib.unified_diff(
+                before_lines,
+                after_lines,
+                fromfile='BEFORE',
+                tofile='AFTER',
+                lineterm=''
+            )
+            diff_lines = [line.rstrip('\n\r') for line in diff]
+
+        has_versions = bool(before_schema or after_schema)
+
+        return JsonResponse({
+            'success': True,
+            'has_versions': has_versions,
+            'table_name': table_name,
+            'query_text': execution.query_text,
+            'before_schema': before_schema,
+            'after_schema': after_schema,
+            'diff_lines': diff_lines,
+            'executed_at': execution.executed_at.strftime('%Y-%m-%d %H:%M:%S'),
+            'operator': getattr(execution, 'operator', '')
+        })

@@ -18,6 +18,10 @@
                 {{ form.connection }}
             </div>
             <div class="col-md-2">
+                <label class="form-label">카테고리</label>
+                {{ form.category }}
+            </div>
+            <div class="col-md-2">
                 <label class="form-label">쿼리 유형</label>
                 {{ form.query_type }}
             </div>
@@ -33,12 +37,12 @@
                 <label class="form-label">종료일</label>
                 {{ form.date_to }}
             </div>
-            <div class="col-md-2">
+            <div class="col-md-4">
                 <label class="form-label">검색</label>
                 {{ form.search }}
             </div>
-            <div class="col-12">
-                <button type="submit" class="btn btn-primary">
+            <div class="col-md-8 d-flex align-items-end">
+                <button type="submit" class="btn btn-primary me-2">
                     <i class="bi bi-search"></i> 검색
                 </button>
                 <a href="{% url 'query_manager:history_list' %}" class="btn btn-outline-secondary">
@@ -69,6 +73,7 @@
                             <th>영향 행</th>
                             <th>실행 시간</th>
                             <th>실행일</th>
+                            <th>액션</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -101,6 +106,17 @@
                                 <td>{{ e.execution_time|floatformat:3 }}s</td>
                                 <td>
                                     <small>{{ e.executed_at|date:"Y-m-d H:i:s" }}</small>
+                                </td>
+                                <td>
+                                    {% if e.query_type == 'DDL' and e.status == 'SUCCESS' %}
+                                        <button type="button" class="btn btn-sm btn-outline-info btn-schema-compare"
+                                                data-history-id="{{ e.pk }}"
+                                                data-bs-toggle="modal" data-bs-target="#schemaCompareModal">
+                                            <i class="bi bi-arrow-left-right"></i> 전/후 비교
+                                        </button>
+                                    {% else %}
+                                        -
+                                    {% endif %}
                                 </td>
                             </tr>
                         {% endfor %}
@@ -144,4 +160,167 @@
         {% endif %}
     </div>
 </div>
+
+<!-- Schema Compare Modal -->
+<div class="modal fade" id="schemaCompareModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-arrow-left-right"></i> 스키마 전/후 비교</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="compareLoading" class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2 text-muted">비교 데이터를 불러오는 중...</p>
+                </div>
+                <div id="compareContent" style="display: none;">
+                    <div class="mb-3">
+                        <strong>테이블:</strong> <span id="compareTableName" class="badge bg-primary"></span>
+                        <strong class="ms-3">실행 시간:</strong> <span id="compareExecutedAt" class="text-muted"></span>
+                    </div>
+
+                    <!-- BEFORE/AFTER/DIFF Tabs -->
+                    <ul class="nav nav-tabs" role="tablist">
+                        <li class="nav-item">
+                            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabBefore">
+                                <i class="bi bi-clock-history"></i> BEFORE
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabAfter">
+                                <i class="bi bi-clock"></i> AFTER
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabDiff">
+                                <i class="bi bi-file-diff"></i> DIFF
+                            </button>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content border border-top-0 rounded-bottom p-3">
+                        <div class="tab-pane fade show active" id="tabBefore">
+                            <pre id="schemaBefore" class="bg-light p-3 rounded" style="max-height: 400px; overflow: auto;"></pre>
+                        </div>
+                        <div class="tab-pane fade" id="tabAfter">
+                            <pre id="schemaAfter" class="bg-light p-3 rounded" style="max-height: 400px; overflow: auto;"></pre>
+                        </div>
+                        <div class="tab-pane fade" id="tabDiff">
+                            <pre id="schemaDiff" class="p-3 rounded" style="max-height: 400px; overflow: auto; background: #1e1e1e; color: #d4d4d4;"></pre>
+                        </div>
+                    </div>
+                </div>
+                <div id="compareError" class="alert alert-danger" style="display: none;"></div>
+                <div id="compareNoData" class="alert alert-warning" style="display: none;">
+                    <i class="bi bi-info-circle"></i> 이 DDL 실행에 대한 스키마 버전 정보가 없습니다.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .diff-added {
+        background-color: rgba(40, 167, 69, 0.2);
+        color: #28a745;
+    }
+    .diff-removed {
+        background-color: rgba(220, 53, 69, 0.2);
+        color: #dc3545;
+    }
+    .diff-context {
+        color: #6c757d;
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Schema compare button handler
+    document.querySelectorAll('.btn-schema-compare').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            const historyId = this.dataset.historyId;
+            loadSchemaComparison(historyId);
+        });
+    });
+
+    function loadSchemaComparison(historyId) {
+        // Reset modal state
+        document.getElementById('compareLoading').style.display = 'block';
+        document.getElementById('compareContent').style.display = 'none';
+        document.getElementById('compareError').style.display = 'none';
+        document.getElementById('compareNoData').style.display = 'none';
+
+        fetch(`{% url 'query_manager:history_list' %}${historyId}/schema-compare/`)
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('compareLoading').style.display = 'none';
+
+                if (data.error) {
+                    document.getElementById('compareError').textContent = data.error;
+                    document.getElementById('compareError').style.display = 'block';
+                    return;
+                }
+
+                if (!data.has_versions) {
+                    document.getElementById('compareNoData').style.display = 'block';
+                    return;
+                }
+
+                // Populate data
+                document.getElementById('compareTableName').textContent = data.table_name || '알 수 없음';
+                document.getElementById('compareExecutedAt').textContent = data.executed_at || '';
+                document.getElementById('schemaBefore').textContent = data.before_schema || '(이전 버전 없음)';
+                document.getElementById('schemaAfter').textContent = data.after_schema || '(버전 없음)';
+
+                // Format diff with colors
+                if (data.diff_lines && data.diff_lines.length > 0) {
+                    const diffHtml = data.diff_lines.map(line => {
+                        if (line.startsWith('+')) {
+                            return `<span class="diff-added">${escapeHtml(line)}</span>`;
+                        } else if (line.startsWith('-')) {
+                            return `<span class="diff-removed">${escapeHtml(line)}</span>`;
+                        } else if (line.startsWith('@@')) {
+                            return `<span class="text-info">${escapeHtml(line)}</span>`;
+                        } else {
+                            return `<span class="diff-context">${escapeHtml(line)}</span>`;
+                        }
+                    }).join('\n');
+                    document.getElementById('schemaDiff').innerHTML = diffHtml;
+                } else {
+                    document.getElementById('schemaDiff').textContent = '(변경 사항 없음)';
+                }
+
+                document.getElementById('compareContent').style.display = 'block';
+
+                // Reset to first tab
+                const firstTab = document.querySelector('#schemaCompareModal .nav-link');
+                if (firstTab) {
+                    firstTab.click();
+                }
+            })
+            .catch(error => {
+                document.getElementById('compareLoading').style.display = 'none';
+                document.getElementById('compareError').textContent = '비교 데이터를 불러오는 중 오류가 발생했습니다.';
+                document.getElementById('compareError').style.display = 'block';
+                console.error('Schema compare error:', error);
+            });
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+});
+</script>
 {% endblock %}

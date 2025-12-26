@@ -17,6 +17,10 @@
         background: #fff3cd;
         border-left: 4px solid #ffc107;
     }
+    .diff-added { background-color: #d4edda; }
+    .diff-removed { background-color: #f8d7da; }
+    .copy-btn { cursor: pointer; }
+    .copy-btn:hover { color: #0d6efd; }
 </style>
 {% endblock %}
 
@@ -31,7 +35,7 @@
 <div class="card mb-4">
     <div class="card-body">
         <div class="row g-3 align-items-end">
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <label class="form-label">DB 연결</label>
                 <select id="connection-select" class="form-select">
                     <option value="">연결을 선택하세요...</option>
@@ -46,7 +50,7 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label class="form-label">데이터베이스</label>
                 <select id="database-select" class="form-select" {% if not selected_connection %}disabled{% endif %}>
                     <option value="">선택...</option>
@@ -55,12 +59,27 @@
                     {% endfor %}
                 </select>
             </div>
+            <div class="col-md-2" id="table-dropdown-container" style="display: none;">
+                <label class="form-label">테이블</label>
+                <div class="input-group">
+                    <select id="table-select" class="form-select">
+                        <option value="">선택...</option>
+                    </select>
+                    <button type="button" id="btn-insert-table" class="btn btn-outline-secondary" title="에디터에 삽입">
+                        <i class="bi bi-plus-lg"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">작업자 <span class="text-danger">*</span></label>
+                <input type="text" id="operator-input" class="form-control" placeholder="작업자명" required>
+            </div>
             <div class="col-md-2">
                 <button type="button" id="btn-test-connection" class="btn btn-outline-secondary w-100" disabled>
                     <i class="bi bi-plug"></i> 연결 테스트
                 </button>
             </div>
-            <div class="col-md-3 text-end">
+            <div class="col-md-1 text-end">
                 <div id="connection-status"></div>
             </div>
         </div>
@@ -73,23 +92,35 @@
         <span><i class="bi bi-code"></i> SQL 에디터</span>
         <div>
             <button type="button" id="btn-analyze" class="btn btn-sm btn-outline-info me-2" disabled>
-                <i class="bi bi-lightbulb"></i> ALTER 분석
+                <i class="bi bi-lightbulb"></i> 온라인 DDL 분석
+            </button>
+            <button type="button" id="btn-review" class="btn btn-sm btn-warning me-2" disabled>
+                <i class="bi bi-check2-square"></i> 검수
             </button>
             <button type="button" id="btn-execute" class="btn btn-sm btn-primary" disabled>
-                <i class="bi bi-play-fill"></i> 실행 (Ctrl+Enter)
+                <i class="bi bi-play-fill"></i> 실행
             </button>
         </div>
     </div>
     <div class="card-body p-0">
-        <textarea id="sql-editor">{% if query %}{{ query }}{% else %}-- SQL 쿼리를 입력하세요
-SELECT * FROM {% endif %}</textarea>
+        <textarea id="sql-editor">-- SQL 쿼리를 입력하세요</textarea>
+    </div>
+</div>
+
+<!-- Query Preview Panel (shown after review) -->
+<div id="query-preview-panel" class="card mb-4 d-none">
+    <div class="card-header bg-success bg-opacity-25 d-flex justify-content-between align-items-center">
+        <h6 class="mb-0"><i class="bi bi-check-circle"></i> 검수 완료 - 실행 대기</h6>
+        <span id="query-count-badge" class="badge bg-primary"></span>
+    </div>
+    <div class="card-body" id="query-preview-content">
     </div>
 </div>
 
 <!-- ALTER Analysis Panel (hidden by default) -->
 <div id="alter-analysis-panel" class="card mb-4 d-none">
     <div class="card-header bg-warning bg-opacity-25">
-        <h6 class="mb-0"><i class="bi bi-lightbulb"></i> ALTER 문 최적화 제안</h6>
+        <h6 class="mb-0"><i class="bi bi-lightbulb"></i> 온라인 DDL 분석</h6>
     </div>
     <div class="card-body" id="alter-analysis-content">
     </div>
@@ -102,34 +133,38 @@ SELECT * FROM {% endif %}</textarea>
         <div id="result-stats" class="text-muted small"></div>
     </div>
     <div class="card-body p-0">
-        <div id="result-panel" class="result-panel">
-            <div class="text-center text-muted py-5">
-                <i class="bi bi-play-circle display-1"></i>
-                <p class="mt-3">쿼리를 실행하면 결과가 여기에 표시됩니다.</p>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Schema Diff Modal -->
-<div class="modal fade" id="schemaDiffModal" tabindex="-1">
-    <div class="modal-dialog modal-xl">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title"><i class="bi bi-file-diff"></i> 스키마 변경 내역</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6>실행 전</h6>
-                        <pre class="bg-light p-3" id="schema-before"></pre>
-                    </div>
-                    <div class="col-md-6">
-                        <h6>실행 후</h6>
-                        <pre class="bg-light p-3" id="schema-after"></pre>
+        <!-- DDL Result Tabs -->
+        <ul class="nav nav-tabs d-none" id="ddl-result-tabs">
+            <li class="nav-item">
+                <a class="nav-link active" data-bs-toggle="tab" href="#tab-result">결과</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="tab" href="#tab-before">BEFORE</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="tab" href="#tab-after">AFTER</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="tab" href="#tab-diff">DIFF</a>
+            </li>
+        </ul>
+        <div class="tab-content">
+            <div class="tab-pane fade show active" id="tab-result">
+                <div id="result-panel" class="result-panel">
+                    <div class="text-center text-muted py-5">
+                        <i class="bi bi-play-circle display-1"></i>
+                        <p class="mt-3">쿼리를 실행하면 결과가 여기에 표시됩니다.</p>
                     </div>
                 </div>
+            </div>
+            <div class="tab-pane fade" id="tab-before">
+                <pre class="bg-light p-3 m-0" id="schema-before" style="max-height: 400px; overflow: auto;"></pre>
+            </div>
+            <div class="tab-pane fade" id="tab-after">
+                <pre class="bg-light p-3 m-0" id="schema-after" style="max-height: 400px; overflow: auto;"></pre>
+            </div>
+            <div class="tab-pane fade" id="tab-diff">
+                <div id="schema-diff" class="p-3" style="max-height: 400px; overflow: auto;"></div>
             </div>
         </div>
     </div>
@@ -150,7 +185,7 @@ document.addEventListener('DOMContentLoaded', function() {
         matchBrackets: true,
         autofocus: true,
         extraKeys: {
-            'Ctrl-Enter': executeQuery,
+            'Ctrl-Enter': executeQueries,
             'Ctrl-Space': 'autocomplete'
         },
         hintOptions: {
@@ -158,28 +193,61 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    // 플레이스홀더 동작
+    const placeholder = '-- SQL 쿼리를 입력하세요';
+    editor.on('focus', function() {
+        if (editor.getValue() === placeholder) {
+            editor.setValue('');
+        }
+    });
+    editor.on('blur', function() {
+        if (editor.getValue().trim() === '') {
+            editor.setValue(placeholder);
+        }
+    });
+
     const connectionSelect = document.getElementById('connection-select');
     const databaseSelect = document.getElementById('database-select');
+    const tableSelect = document.getElementById('table-select');
+    const tableDropdownContainer = document.getElementById('table-dropdown-container');
+    const btnInsertTable = document.getElementById('btn-insert-table');
+    const operatorInput = document.getElementById('operator-input');
     const btnTestConnection = document.getElementById('btn-test-connection');
     const btnAnalyze = document.getElementById('btn-analyze');
+    const btnReview = document.getElementById('btn-review');
     const btnExecute = document.getElementById('btn-execute');
     const resultPanel = document.getElementById('result-panel');
     const resultStats = document.getElementById('result-stats');
     const connectionStatus = document.getElementById('connection-status');
     const alterAnalysisPanel = document.getElementById('alter-analysis-panel');
+    const queryPreviewPanel = document.getElementById('query-preview-panel');
+    const ddlResultTabs = document.getElementById('ddl-result-tabs');
+
+    let validatedQueries = [];
+    let currentOperator = '';
 
     // 연결 선택 시
     connectionSelect.addEventListener('change', function() {
         const connectionId = this.value;
         btnTestConnection.disabled = !connectionId;
-        btnExecute.disabled = !connectionId;
+        btnReview.disabled = !connectionId;
         btnAnalyze.disabled = !connectionId;
         databaseSelect.disabled = !connectionId;
+        resetExecuteState();
 
         if (connectionId) {
             loadDatabases(connectionId);
         } else {
             databaseSelect.innerHTML = '<option value="">선택...</option>';
+            tableDropdownContainer.style.display = 'none';
+        }
+    });
+
+    // 데이터베이스 선택 시 테이블 로드
+    databaseSelect.addEventListener('change', function() {
+        const database = this.value;
+        if (database && connectionSelect.value) {
+            loadTables(connectionSelect.value, database);
         }
     });
 
@@ -198,12 +266,38 @@ document.addEventListener('DOMContentLoaded', function() {
             });
     }
 
+    // 테이블 목록 로드
+    function loadTables(connectionId, database) {
+        fetch(`/api/connections/${connectionId}/databases/${database}/tables/`)
+            .then(response => response.json())
+            .then(data => {
+                tableSelect.innerHTML = '<option value="">선택...</option>';
+                data.tables.forEach(table => {
+                    const option = document.createElement('option');
+                    option.value = table;
+                    option.textContent = table;
+                    tableSelect.appendChild(option);
+                });
+                tableDropdownContainer.style.display = 'block';
+            });
+    }
+
+    // 테이블 삽입
+    btnInsertTable.addEventListener('click', function() {
+        const tableName = tableSelect.value;
+        if (tableName) {
+            const cursor = editor.getCursor();
+            editor.replaceRange(tableName, cursor);
+            editor.focus();
+        }
+    });
+
     // 연결 테스트
     btnTestConnection.addEventListener('click', function() {
         const connectionId = connectionSelect.value;
         if (!connectionId) return;
 
-        connectionStatus.innerHTML = '<span class="text-info"><i class="bi bi-hourglass-split"></i> 테스트 중...</span>';
+        connectionStatus.innerHTML = '<span class="text-info"><i class="bi bi-hourglass-split"></i></span>';
 
         fetch(`/api/connections/${connectionId}/test/`, {
             method: 'POST',
@@ -215,19 +309,19 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                connectionStatus.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> 연결 성공 (${data.server_info.version})</span>`;
+                connectionStatus.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i></span>`;
             } else {
-                connectionStatus.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> ${data.message}</span>`;
+                connectionStatus.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i></span>`;
             }
         });
     });
 
-    // ALTER 분석
+    // 온라인 DDL 분석
     btnAnalyze.addEventListener('click', function() {
         const connectionId = connectionSelect.value;
         const query = editor.getValue().trim();
 
-        if (!connectionId || !query) return;
+        if (!connectionId || !query || query === placeholder) return;
 
         fetch('/query/analyze-alter/', {
             method: 'POST',
@@ -250,25 +344,39 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // ALTER 분석 결과 표시
+    // ALTER 분석 결과 표시 (개선된 UI)
     function showAlterAnalysis(data) {
         let html = `
-            <p><strong>테이블:</strong> ${data.table_name}</p>
+            <p><strong>테이블:</strong> <code>${data.table_name}</code></p>
             <p><strong>작업:</strong> ${data.operation}</p>
             <p><strong>예상 영향:</strong> ${data.estimated_impact}</p>
             <h6 class="mt-3">최적화 옵션:</h6>
             <div class="list-group">
         `;
 
-        data.suggestions.forEach(suggestion => {
+        data.suggestions.forEach((suggestion, idx) => {
+            const combinedOption = suggestion.combined_option || `${suggestion.option}, ${suggestion.lock}`;
+            const copyableQuery = data.copyable_queries ? data.copyable_queries[idx] : '';
+
             html += `
                 <div class="list-group-item">
                     <div class="d-flex justify-content-between align-items-center">
-                        <strong><code>${suggestion.option}</code></strong>
+                        <div>
+                            <strong><code>${combinedOption}</code></strong>
+                            <span class="copy-btn ms-2" onclick="copyToClipboard('${combinedOption}')" title="옵션 복사">
+                                <i class="bi bi-clipboard"></i>
+                            </span>
+                        </div>
                         <span class="badge bg-${suggestion.impact === '매우 낮음' ? 'success' : suggestion.impact === '낮음' ? 'info' : suggestion.impact === '중간' ? 'warning' : 'danger'}">${suggestion.impact}</span>
                     </div>
                     <p class="mb-1 text-muted small">${suggestion.description}</p>
-                    <small>Lock: <code>${suggestion.lock}</code></small>
+                    ${copyableQuery ? `
+                        <div class="mt-2">
+                            <button class="btn btn-sm btn-outline-primary" onclick="copyToClipboard(\`${copyableQuery.replace(/`/g, '\\`')}\`)">
+                                <i class="bi bi-clipboard"></i> 전체 쿼리 복사
+                            </button>
+                        </div>
+                    ` : ''}
                 </div>
             `;
         });
@@ -279,26 +387,32 @@ document.addEventListener('DOMContentLoaded', function() {
         alterAnalysisPanel.classList.remove('d-none');
     }
 
-    // 쿼리 실행
-    function executeQuery() {
+    // 검수 (Review)
+    btnReview.addEventListener('click', function() {
         const connectionId = connectionSelect.value;
         const query = editor.getValue().trim();
+        const operator = operatorInput.value.trim();
 
         if (!connectionId) {
             alert('연결을 선택해주세요.');
             return;
         }
 
-        if (!query) {
+        if (!query || query === placeholder) {
             alert('쿼리를 입력해주세요.');
             return;
         }
 
-        btnExecute.disabled = true;
-        btnExecute.innerHTML = '<i class="bi bi-hourglass-split"></i> 실행 중...';
-        resultStats.innerHTML = '';
+        if (!operator) {
+            alert('작업자를 입력해주세요.');
+            operatorInput.focus();
+            return;
+        }
 
-        fetch('/query/execute/', {
+        btnReview.disabled = true;
+        btnReview.innerHTML = '<i class="bi bi-hourglass-split"></i> 검수 중...';
+
+        fetch('/query/review/', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -306,87 +420,231 @@ document.addEventListener('DOMContentLoaded', function() {
             },
             body: JSON.stringify({
                 connection_id: connectionId,
-                query: query
+                query: query,
+                operator: operator
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            btnReview.disabled = false;
+            btnReview.innerHTML = '<i class="bi bi-check2-square"></i> 검수';
+
+            if (data.success) {
+                showReviewResult(data);
+            } else {
+                alert('검수 실패: ' + data.error);
+            }
+        })
+        .catch(error => {
+            btnReview.disabled = false;
+            btnReview.innerHTML = '<i class="bi bi-check2-square"></i> 검수';
+            alert('검수 중 오류: ' + error.message);
+        });
+    });
+
+    // 검수 결과 표시
+    function showReviewResult(data) {
+        validatedQueries = data.validation_results.map(r => r.full_query);
+        currentOperator = data.operator;
+
+        let html = '';
+        data.validation_results.forEach((result, idx) => {
+            const statusClass = result.valid ? 'success' : 'danger';
+            const statusIcon = result.valid ? 'check-circle' : 'x-circle';
+
+            html += `
+                <div class="mb-3 p-3 border rounded ${result.is_dangerous ? 'border-warning' : ''}">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <span class="badge bg-secondary me-2">#${idx + 1}</span>
+                            <span class="badge bg-${statusClass}"><i class="bi bi-${statusIcon}"></i> ${result.valid ? '유효' : '오류'}</span>
+                            <span class="badge bg-info ms-1">${result.query_type}</span>
+                        </div>
+                    </div>
+                    <pre class="bg-light p-2 mt-2 mb-2" style="max-height: 100px; overflow: auto;">${result.query}</pre>
+                    ${result.errors.length > 0 ? `<div class="text-danger small">${result.errors.join('<br>')}</div>` : ''}
+                    ${result.warnings.length > 0 ? `<div class="text-warning small">${result.warnings.join('<br>')}</div>` : ''}
+                </div>
+            `;
+        });
+
+        document.getElementById('query-preview-content').innerHTML = html;
+        document.getElementById('query-count-badge').textContent = `${data.query_count}개 쿼리`;
+        queryPreviewPanel.classList.remove('d-none');
+
+        if (data.all_valid) {
+            btnExecute.disabled = false;
+            btnExecute.classList.remove('btn-secondary');
+            btnExecute.classList.add('btn-primary');
+        } else {
+            btnExecute.disabled = true;
+        }
+
+        if (data.has_dangerous) {
+            if (!confirm('위험한 쿼리가 포함되어 있습니다. 계속하시겠습니까?')) {
+                resetExecuteState();
+            }
+        }
+    }
+
+    // 실행 상태 초기화
+    function resetExecuteState() {
+        validatedQueries = [];
+        currentOperator = '';
+        btnExecute.disabled = true;
+        queryPreviewPanel.classList.add('d-none');
+    }
+
+    // 쿼리 실행
+    function executeQueries() {
+        if (validatedQueries.length === 0) {
+            alert('먼저 검수를 진행해주세요.');
+            return;
+        }
+
+        btnExecute.disabled = true;
+        btnExecute.innerHTML = '<i class="bi bi-hourglass-split"></i> 실행 중...';
+        resultStats.innerHTML = '';
+
+        fetch('/query/batch-execute/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrftoken
+            },
+            body: JSON.stringify({
+                connection_id: connectionSelect.value,
+                queries: validatedQueries,
+                operator: currentOperator
             })
         })
         .then(response => response.json())
         .then(data => {
             btnExecute.disabled = false;
-            btnExecute.innerHTML = '<i class="bi bi-play-fill"></i> 실행 (Ctrl+Enter)';
+            btnExecute.innerHTML = '<i class="bi bi-play-fill"></i> 실행';
 
             if (data.success) {
-                showResult(data);
+                showBatchResult(data);
             } else {
-                showError(data.error);
+                showBatchError(data);
             }
+
+            resetExecuteState();
         })
         .catch(error => {
             btnExecute.disabled = false;
-            btnExecute.innerHTML = '<i class="bi bi-play-fill"></i> 실행 (Ctrl+Enter)';
+            btnExecute.innerHTML = '<i class="bi bi-play-fill"></i> 실행';
             showError(error.message);
+            resetExecuteState();
         });
     }
 
-    btnExecute.addEventListener('click', executeQuery);
+    btnExecute.addEventListener('click', executeQueries);
 
-    // 결과 표시
-    function showResult(data) {
+    // 배치 실행 결과 표시
+    function showBatchResult(data) {
         resultStats.innerHTML = `
             <span class="text-success"><i class="bi bi-check-circle"></i> 성공</span>
-            <span class="ms-3">영향받은 행: ${data.affected_rows}</span>
-            <span class="ms-3">실행 시간: ${data.execution_time.toFixed(3)}초</span>
+            <span class="ms-3">총 ${data.total}개 쿼리</span>
+            <span class="ms-3">성공: ${data.successful}</span>
+            <span class="ms-3">배치 ID: ${data.batch_id}</span>
         `;
 
-        if (data.query_type === 'SELECT' && data.data && data.data.length > 0) {
-            // SELECT 결과 테이블
-            let html = '<div class="table-responsive"><table class="table table-sm table-striped table-hover mb-0">';
-            html += '<thead class="table-dark"><tr>';
-            data.columns.forEach(col => {
-                html += `<th>${col}</th>`;
-            });
-            html += '</tr></thead><tbody>';
+        let html = '<div class="p-3">';
+        let hasDDL = false;
+        let lastDDLResult = null;
 
-            data.data.forEach(row => {
-                html += '<tr>';
-                data.columns.forEach(col => {
-                    const value = row[col];
-                    html += `<td>${value !== null ? value : '<span class="text-muted">NULL</span>'}</td>`;
-                });
-                html += '</tr>';
-            });
-
-            html += '</tbody></table></div>';
-            resultPanel.innerHTML = html;
-        } else if (data.query_type === 'DDL' && (data.schema_before || data.schema_after)) {
-            // DDL 결과 + 스키마 변경
-            let html = `
-                <div class="p-3">
-                    <div class="alert alert-success">
-                        <i class="bi bi-check-circle"></i> DDL 실행 완료
-                    </div>
-                    <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#schemaDiffModal">
-                        <i class="bi bi-file-diff"></i> 스키마 변경 보기
-                    </button>
+        data.results.forEach((result, idx) => {
+            const statusClass = result.success ? 'success' : 'danger';
+            html += `
+                <div class="alert alert-${statusClass} py-2">
+                    <strong>#${idx + 1}</strong> ${result.query_type} -
+                    영향받은 행: ${result.affected_rows},
+                    실행 시간: ${result.execution_time.toFixed(3)}초
                 </div>
             `;
-            resultPanel.innerHTML = html;
 
-            document.getElementById('schema-before').textContent = data.schema_before || '(없음)';
-            document.getElementById('schema-after').textContent = data.schema_after || '(없음)';
-        } else {
-            // DML 결과
-            resultPanel.innerHTML = `
-                <div class="p-3">
-                    <div class="alert alert-success mb-0">
-                        <i class="bi bi-check-circle"></i> 쿼리 실행 완료 (영향받은 행: ${data.affected_rows})
-                    </div>
+            if (result.query_type === 'DDL' && (result.schema_before || result.schema_after)) {
+                hasDDL = true;
+                lastDDLResult = result;
+            }
+        });
+
+        html += '</div>';
+        resultPanel.innerHTML = html;
+
+        // DDL 결과가 있으면 탭 표시
+        if (hasDDL && lastDDLResult) {
+            showDDLDiff(lastDDLResult.schema_before, lastDDLResult.schema_after);
+        }
+    }
+
+    // 배치 실행 오류 표시
+    function showBatchError(data) {
+        resultStats.innerHTML = `
+            <span class="text-danger"><i class="bi bi-x-circle"></i> 실패 (전체 롤백)</span>
+            <span class="ms-3">배치 ID: ${data.batch_id}</span>
+        `;
+
+        let html = `
+            <div class="p-3">
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i> <strong>오류:</strong> ${data.error}
                 </div>
-            `;
+        `;
+
+        if (data.results) {
+            data.results.forEach((result, idx) => {
+                const statusClass = result.success ? 'success' : 'danger';
+                html += `
+                    <div class="alert alert-${statusClass} py-2">
+                        <strong>#${idx + 1}</strong> ${result.query_type} -
+                        ${result.error ? result.error : '성공 (롤백됨)'}
+                    </div>
+                `;
+            });
         }
 
-        // ALTER 분석 결과가 있으면 표시
-        if (data.alter_analysis && data.alter_analysis.is_alter) {
-            showAlterAnalysis(data.alter_analysis);
+        html += '</div>';
+        resultPanel.innerHTML = html;
+    }
+
+    // DDL Diff 표시
+    function showDDLDiff(before, after) {
+        ddlResultTabs.classList.remove('d-none');
+
+        document.getElementById('schema-before').textContent = before || '(없음)';
+        document.getElementById('schema-after').textContent = after || '(없음)';
+
+        // 간단한 diff 표시
+        const diffDiv = document.getElementById('schema-diff');
+        if (before && after) {
+            const beforeLines = before.split('\n');
+            const afterLines = after.split('\n');
+
+            let diffHtml = '<pre>';
+            const maxLen = Math.max(beforeLines.length, afterLines.length);
+
+            for (let i = 0; i < maxLen; i++) {
+                const bLine = beforeLines[i] || '';
+                const aLine = afterLines[i] || '';
+
+                if (bLine !== aLine) {
+                    if (bLine && !afterLines.includes(bLine)) {
+                        diffHtml += `<div class="diff-removed">- ${bLine}</div>`;
+                    }
+                    if (aLine && !beforeLines.includes(aLine)) {
+                        diffHtml += `<div class="diff-added">+ ${aLine}</div>`;
+                    }
+                } else {
+                    diffHtml += `<div>  ${aLine}</div>`;
+                }
+            }
+
+            diffHtml += '</pre>';
+            diffDiv.innerHTML = diffHtml;
+        } else {
+            diffDiv.innerHTML = '<p class="text-muted">비교할 스키마가 없습니다.</p>';
         }
     }
 
@@ -405,9 +663,18 @@ document.addEventListener('DOMContentLoaded', function() {
     // 초기 연결이 선택되어 있으면 버튼 활성화
     if (connectionSelect.value) {
         btnTestConnection.disabled = false;
-        btnExecute.disabled = false;
+        btnReview.disabled = false;
         btnAnalyze.disabled = false;
     }
 });
+
+// 클립보드 복사 함수
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        // 복사 성공 알림 (선택적)
+    }).catch(err => {
+        console.error('복사 실패:', err);
+    });
+}
 </script>
 {% endblock %}
