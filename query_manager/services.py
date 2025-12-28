@@ -529,6 +529,12 @@ class QueryService:
         if table_name:
             result['affected_tables'].append(table_name)
 
+        # DML/DQL에서 테이블명 추출
+        if not table_name:
+            table_name = self._extract_table_from_dml(query)
+            if table_name:
+                result['affected_tables'].append(table_name)
+
         query_upper = query.upper()
 
         # 위험한 쿼리 체크
@@ -552,27 +558,171 @@ class QueryService:
             result['danger_reason'] = 'WHERE 절이 없는 UPDATE는 모든 행을 수정합니다.'
             result['warnings'].append('⚠️ WHERE 절이 없는 UPDATE: 모든 행이 수정됩니다.')
 
-        # 기본 문법 검사 (EXPLAIN 사용)
+        # 문법 및 의미 검증
         try:
             conn = self._get_db_connection()
             try:
                 with conn.cursor() as cursor:
-                    # DDL은 EXPLAIN 불가
-                    if query_type not in ['DDL']:
-                        try:
-                            cursor.execute(f"EXPLAIN {query}")
-                        except pymysql.Error as e:
-                            error_msg = str(e)
-                            # 문법 오류인 경우
-                            if '1064' in error_msg or 'syntax' in error_msg.lower():
-                                result['valid'] = False
-                                result['errors'].append(f'문법 오류: {error_msg}')
+                    if query_type == 'DDL':
+                        # DDL 검증: PREPARE 문 사용
+                        self._validate_ddl_query(cursor, query, result)
+                    elif query_type == 'SELECT':
+                        # SELECT 검증: EXPLAIN 사용
+                        self._validate_select_query(cursor, query, result)
+                    else:
+                        # DML 검증: EXPLAIN 사용
+                        self._validate_dml_query(cursor, query, result)
+
+                    # 테이블 존재 여부 확인
+                    if result['affected_tables'] and result['valid']:
+                        self._validate_table_exists(cursor, result['affected_tables'], result)
+
             finally:
                 conn.close()
         except pymysql.Error as e:
-            result['warnings'].append(f'검증 중 연결 오류: {e}')
+            error_msg = str(e)
+            error_code = e.args[0] if e.args else 0
+
+            # 연결 오류가 아닌 경우 검증 실패로 처리
+            if error_code not in [2003, 2006, 2013]:  # 연결 관련 에러
+                result['valid'] = False
+                result['errors'].append(f'검증 오류: {self._parse_mysql_error(error_msg)}')
+            else:
+                result['warnings'].append(f'검증 중 연결 오류: {error_msg}')
 
         return result
+
+    def _validate_ddl_query(self, cursor, query: str, result: dict):
+        """DDL 쿼리 문법 검증"""
+        query_upper = query.upper().strip()
+
+        # CREATE TABLE 검증
+        if query_upper.startswith('CREATE TABLE'):
+            # 임시로 IF NOT EXISTS를 추가해서 검증
+            test_query = query
+            if 'IF NOT EXISTS' not in query_upper:
+                test_query = query.replace('CREATE TABLE', 'CREATE TABLE IF NOT EXISTS', 1)
+
+            # 실제로 실행하지 않고 파싱만 하기 위해 PREPARE 사용
+            try:
+                stmt_name = f"stmt_{uuid.uuid4().hex[:8]}"
+                cursor.execute(f"PREPARE {stmt_name} FROM %s", (test_query,))
+                cursor.execute(f"DEALLOCATE PREPARE {stmt_name}")
+            except pymysql.Error as e:
+                error_msg = str(e)
+                result['valid'] = False
+                result['errors'].append(f'문법 오류: {self._parse_mysql_error(error_msg)}')
+
+        # ALTER TABLE 검증
+        elif query_upper.startswith('ALTER TABLE'):
+            try:
+                stmt_name = f"stmt_{uuid.uuid4().hex[:8]}"
+                cursor.execute(f"PREPARE {stmt_name} FROM %s", (query,))
+                cursor.execute(f"DEALLOCATE PREPARE {stmt_name}")
+            except pymysql.Error as e:
+                error_msg = str(e)
+                result['valid'] = False
+                result['errors'].append(f'문법 오류: {self._parse_mysql_error(error_msg)}')
+
+        # DROP TABLE 검증
+        elif query_upper.startswith('DROP TABLE'):
+            # 테이블 존재 여부 확인
+            table_name = self._extract_table_name(query)
+            if table_name and 'IF EXISTS' not in query_upper:
+                try:
+                    cursor.execute(f"SHOW TABLES LIKE %s", (table_name,))
+                    if not cursor.fetchone():
+                        result['valid'] = False
+                        result['errors'].append(f"테이블 '{table_name}'이(가) 존재하지 않습니다.")
+                except pymysql.Error:
+                    pass
+
+        # 기타 DDL
+        else:
+            try:
+                stmt_name = f"stmt_{uuid.uuid4().hex[:8]}"
+                cursor.execute(f"PREPARE {stmt_name} FROM %s", (query,))
+                cursor.execute(f"DEALLOCATE PREPARE {stmt_name}")
+            except pymysql.Error as e:
+                error_msg = str(e)
+                result['valid'] = False
+                result['errors'].append(f'문법 오류: {self._parse_mysql_error(error_msg)}')
+
+    def _validate_select_query(self, cursor, query: str, result: dict):
+        """SELECT 쿼리 검증"""
+        try:
+            cursor.execute(f"EXPLAIN {query}")
+        except pymysql.Error as e:
+            error_msg = str(e)
+            result['valid'] = False
+            result['errors'].append(f'쿼리 오류: {self._parse_mysql_error(error_msg)}')
+
+    def _validate_dml_query(self, cursor, query: str, result: dict):
+        """DML 쿼리 검증 (INSERT, UPDATE, DELETE)"""
+        try:
+            # EXPLAIN으로 검증
+            cursor.execute(f"EXPLAIN {query}")
+        except pymysql.Error as e:
+            error_msg = str(e)
+            result['valid'] = False
+            result['errors'].append(f'쿼리 오류: {self._parse_mysql_error(error_msg)}')
+
+    def _validate_table_exists(self, cursor, tables: list, result: dict):
+        """테이블 존재 여부 확인"""
+        for table_name in tables:
+            try:
+                cursor.execute(f"SHOW TABLES LIKE %s", (table_name,))
+                if not cursor.fetchone():
+                    result['warnings'].append(f"테이블 '{table_name}'이(가) 존재하지 않을 수 있습니다.")
+            except pymysql.Error:
+                pass
+
+    def _extract_table_from_dml(self, query: str) -> str:
+        """DML 쿼리에서 테이블명 추출"""
+        patterns = [
+            r'FROM\s+`?(\w+)`?',  # SELECT ... FROM table
+            r'INTO\s+`?(\w+)`?',  # INSERT INTO table
+            r'UPDATE\s+`?(\w+)`?',  # UPDATE table
+            r'DELETE\s+FROM\s+`?(\w+)`?',  # DELETE FROM table
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, query, re.IGNORECASE)
+            if match:
+                return match.group(1)
+        return ''
+
+    def _parse_mysql_error(self, error_msg: str) -> str:
+        """MySQL 에러 메시지를 사용자 친화적으로 변환"""
+        # 에러 코드별 한글 메시지
+        error_mappings = {
+            '1064': '문법 오류',
+            '1146': '테이블이 존재하지 않습니다',
+            '1054': '컬럼이 존재하지 않습니다',
+            '1062': '중복된 키 값입니다',
+            '1452': '외래 키 제약 조건 위반',
+            '1451': '자식 레코드가 존재하여 삭제할 수 없습니다',
+            '1366': '데이터 타입이 맞지 않습니다',
+            '1406': '데이터가 너무 깁니다',
+            '1048': 'NULL 값이 허용되지 않습니다',
+            '1136': '컬럼 수가 맞지 않습니다',
+            '1364': '필수 필드에 값이 없습니다',
+        }
+
+        # 에러 코드 추출
+        code_match = re.search(r'\((\d+),', error_msg)
+        if code_match:
+            error_code = code_match.group(1)
+            if error_code in error_mappings:
+                # 상세 메시지도 포함
+                detail_match = re.search(r"'([^']+)'", error_msg)
+                detail = f" ({detail_match.group(1)})" if detail_match else ""
+                return f"{error_mappings[error_code]}{detail}"
+
+        # 원본 메시지에서 핵심 내용만 추출
+        clean_msg = re.sub(r'^\(\d+,\s*["\']', '', error_msg)
+        clean_msg = re.sub(r'["\']?\)$', '', clean_msg)
+        return clean_msg[:200]  # 최대 200자
 
     def execute_batch(self, queries: list, operator: str) -> dict:
         """

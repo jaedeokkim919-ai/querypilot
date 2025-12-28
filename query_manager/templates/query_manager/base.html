@@ -93,11 +93,6 @@
                     <i class="bi bi-clock-history"></i> 실행 이력
                 </a>
             </li>
-            <li class="nav-item">
-                <a href="{% url 'query_manager:version_management' %}" class="nav-link {% if 'version' in request.resolver_match.url_name %}active{% endif %}">
-                    <i class="bi bi-git"></i> 버전 관리
-                </a>
-            </li>
         </ul>
 
         <div class="mt-auto p-3 text-muted small">

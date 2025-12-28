@@ -37,11 +37,15 @@
                 <label class="form-label">종료일</label>
                 {{ form.date_to }}
             </div>
-            <div class="col-md-4">
+            <div class="col-md-2">
+                <label class="form-label">작업자</label>
+                {{ form.operator }}
+            </div>
+            <div class="col-md-2">
                 <label class="form-label">검색</label>
                 {{ form.search }}
             </div>
-            <div class="col-md-8 d-flex align-items-end">
+            <div class="col-md-4 d-flex align-items-end">
                 <button type="submit" class="btn btn-primary me-2">
                     <i class="bi bi-search"></i> 검색
                 </button>
@@ -70,6 +74,7 @@
                             <th>쿼리</th>
                             <th>유형</th>
                             <th>상태</th>
+                            <th>작업자</th>
                             <th>영향 행</th>
                             <th>실행 시간</th>
                             <th>실행일</th>
@@ -100,6 +105,13 @@
                                         <span class="badge bg-success">성공</span>
                                     {% else %}
                                         <span class="badge bg-danger">실패</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if e.operator %}
+                                        <small class="text-primary">{{ e.operator }}</small>
+                                    {% else %}
+                                        <small class="text-muted">-</small>
                                     {% endif %}
                                 </td>
                                 <td>{{ e.affected_rows|default:"-" }}</td>
@@ -180,18 +192,14 @@
                     <div class="mb-3">
                         <strong>테이블:</strong> <span id="compareTableName" class="badge bg-primary"></span>
                         <strong class="ms-3">실행 시간:</strong> <span id="compareExecutedAt" class="text-muted"></span>
+                        <strong class="ms-3">실행 쿼리:</strong> <code id="compareQuery" class="text-truncate d-inline-block" style="max-width: 300px;"></code>
                     </div>
 
-                    <!-- BEFORE/AFTER/DIFF Tabs -->
+                    <!-- Side-by-Side View -->
                     <ul class="nav nav-tabs" role="tablist">
                         <li class="nav-item">
-                            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabBefore">
-                                <i class="bi bi-clock-history"></i> BEFORE
-                            </button>
-                        </li>
-                        <li class="nav-item">
-                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabAfter">
-                                <i class="bi bi-clock"></i> AFTER
+                            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabSideBySide">
+                                <i class="bi bi-layout-split"></i> 비교 보기
                             </button>
                         </li>
                         <li class="nav-item">
@@ -201,15 +209,25 @@
                         </li>
                     </ul>
 
-                    <div class="tab-content border border-top-0 rounded-bottom p-3">
-                        <div class="tab-pane fade show active" id="tabBefore">
-                            <pre id="schemaBefore" class="bg-light p-3 rounded" style="max-height: 400px; overflow: auto;"></pre>
-                        </div>
-                        <div class="tab-pane fade" id="tabAfter">
-                            <pre id="schemaAfter" class="bg-light p-3 rounded" style="max-height: 400px; overflow: auto;"></pre>
+                    <div class="tab-content border border-top-0 rounded-bottom">
+                        <div class="tab-pane fade show active" id="tabSideBySide">
+                            <div class="row g-0">
+                                <div class="col-6 border-end">
+                                    <div class="p-2 bg-danger bg-opacity-10 border-bottom">
+                                        <strong><i class="bi bi-clock-history"></i> BEFORE (실행 전)</strong>
+                                    </div>
+                                    <pre id="schemaBefore" class="p-3 m-0" style="max-height: 400px; overflow: auto; font-size: 12px;"></pre>
+                                </div>
+                                <div class="col-6">
+                                    <div class="p-2 bg-success bg-opacity-10 border-bottom">
+                                        <strong><i class="bi bi-clock"></i> AFTER (실행 후)</strong>
+                                    </div>
+                                    <pre id="schemaAfter" class="p-3 m-0" style="max-height: 400px; overflow: auto; font-size: 12px;"></pre>
+                                </div>
+                            </div>
                         </div>
                         <div class="tab-pane fade" id="tabDiff">
-                            <pre id="schemaDiff" class="p-3 rounded" style="max-height: 400px; overflow: auto; background: #1e1e1e; color: #d4d4d4;"></pre>
+                            <pre id="schemaDiff" class="p-3 m-0 rounded-bottom" style="max-height: 400px; overflow: auto; background: #1e1e1e; color: #d4d4d4; font-size: 12px;"></pre>
                         </div>
                     </div>
                 </div>
@@ -260,7 +278,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('compareError').style.display = 'none';
         document.getElementById('compareNoData').style.display = 'none';
 
-        fetch(`{% url 'query_manager:history_list' %}${historyId}/schema-compare/`)
+        fetch(`/history/${historyId}/schema-compare/`)
             .then(response => response.json())
             .then(data => {
                 document.getElementById('compareLoading').style.display = 'none';
@@ -279,8 +297,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Populate data
                 document.getElementById('compareTableName').textContent = data.table_name || '알 수 없음';
                 document.getElementById('compareExecutedAt').textContent = data.executed_at || '';
-                document.getElementById('schemaBefore').textContent = data.before_schema || '(이전 버전 없음)';
-                document.getElementById('schemaAfter').textContent = data.after_schema || '(버전 없음)';
+                document.getElementById('compareQuery').textContent = data.query_text ? (data.query_text.length > 50 ? data.query_text.substring(0, 50) + '...' : data.query_text) : '';
+                document.getElementById('compareQuery').title = data.query_text || '';
+                document.getElementById('schemaBefore').textContent = data.before_schema || '(이전 스키마 없음)';
+                document.getElementById('schemaAfter').textContent = data.after_schema || '(스키마 없음)';
 
                 // Format diff with colors
                 if (data.diff_lines && data.diff_lines.length > 0) {
@@ -302,10 +322,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 document.getElementById('compareContent').style.display = 'block';
 
-                // Reset to first tab
-                const firstTab = document.querySelector('#schemaCompareModal .nav-link');
+                // Reset to first tab (비교 보기)
+                const firstTab = document.querySelector('#schemaCompareModal [data-bs-target="#tabSideBySide"]');
                 if (firstTab) {
-                    firstTab.click();
+                    const tab = new bootstrap.Tab(firstTab);
+                    tab.show();
                 }
             })
             .catch(error => {

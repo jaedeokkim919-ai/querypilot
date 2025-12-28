@@ -61,6 +61,8 @@ class DashboardView(View):
             'recent_queries': recent_queries,
             'stats': stats,
             'connection_stats': connection_stats,
+            'today': today.strftime('%Y-%m-%d'),
+            'week_ago': week_ago.strftime('%Y-%m-%d'),
         }
         return render(request, 'query_manager/dashboard.html', context)
 
@@ -249,6 +251,10 @@ class HistoryListView(View):
                 queryset = queryset.filter(query_type__in=['INSERT', 'UPDATE', 'DELETE'])
             elif category == 'DQL':
                 queryset = queryset.filter(query_type='SELECT')
+
+            # 작업자 필터
+            if form.cleaned_data.get('operator'):
+                queryset = queryset.filter(operator__icontains=form.cleaned_data['operator'])
 
         # 페이지네이션
         from django.core.paginator import Paginator

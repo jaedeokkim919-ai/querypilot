@@ -2,6 +2,19 @@
 
 {% block title %}대시보드 - QueryPilot{% endblock %}
 
+{% block extra_css %}
+<style>
+    .stat-card {
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        cursor: pointer;
+    }
+    .stat-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="row mb-4">
     <div class="col">
@@ -17,56 +30,64 @@
 <!-- Stats Cards -->
 <div class="row mb-4">
     <div class="col-md-3">
-        <div class="card bg-primary text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <h6 class="card-subtitle mb-1 opacity-75">활성 연결</h6>
-                        <h2 class="mb-0">{{ stats.total_connections }}</h2>
+        <a href="{% url 'query_manager:connection_list' %}?is_active=true" class="text-decoration-none">
+            <div class="card bg-primary text-white stat-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-subtitle mb-1 opacity-75">활성 연결</h6>
+                            <h2 class="mb-0">{{ stats.total_connections }}</h2>
+                        </div>
+                        <i class="bi bi-plug display-4 opacity-50"></i>
                     </div>
-                    <i class="bi bi-plug display-4 opacity-50"></i>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-3">
-        <div class="card bg-success text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <h6 class="card-subtitle mb-1 opacity-75">오늘 실행 쿼리</h6>
-                        <h2 class="mb-0">{{ stats.total_queries_today }}</h2>
+        <a href="{% url 'query_manager:history_list' %}?date_from={{ today }}&date_to={{ today }}" class="text-decoration-none">
+            <div class="card bg-success text-white stat-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-subtitle mb-1 opacity-75">오늘 실행 쿼리</h6>
+                            <h2 class="mb-0">{{ stats.total_queries_today }}</h2>
+                        </div>
+                        <i class="bi bi-play-circle display-4 opacity-50"></i>
                     </div>
-                    <i class="bi bi-play-circle display-4 opacity-50"></i>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-3">
-        <div class="card bg-danger text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <h6 class="card-subtitle mb-1 opacity-75">오늘 실패 쿼리</h6>
-                        <h2 class="mb-0">{{ stats.failed_queries_today }}</h2>
+        <a href="{% url 'query_manager:history_list' %}?date_from={{ today }}&date_to={{ today }}&status=FAILED" class="text-decoration-none">
+            <div class="card bg-danger text-white stat-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-subtitle mb-1 opacity-75">오늘 실패 쿼리</h6>
+                            <h2 class="mb-0">{{ stats.failed_queries_today }}</h2>
+                        </div>
+                        <i class="bi bi-x-circle display-4 opacity-50"></i>
                     </div>
-                    <i class="bi bi-x-circle display-4 opacity-50"></i>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-3">
-        <div class="card bg-info text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <h6 class="card-subtitle mb-1 opacity-75">주간 쿼리</h6>
-                        <h2 class="mb-0">{{ stats.queries_this_week }}</h2>
+        <a href="{% url 'query_manager:history_list' %}?date_from={{ week_ago }}&date_to={{ today }}" class="text-decoration-none">
+            <div class="card bg-info text-white stat-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-subtitle mb-1 opacity-75">주간 쿼리</h6>
+                            <h2 class="mb-0">{{ stats.queries_this_week }}</h2>
+                        </div>
+                        <i class="bi bi-calendar-week display-4 opacity-50"></i>
                     </div>
-                    <i class="bi bi-calendar-week display-4 opacity-50"></i>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
 </div>
 

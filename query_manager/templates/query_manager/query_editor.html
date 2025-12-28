@@ -409,6 +409,9 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        // DDL 분석 패널 자동 닫기
+        alterAnalysisPanel.classList.add('d-none');
+
         btnReview.disabled = true;
         btnReview.innerHTML = '<i class="bi bi-hourglass-split"></i> 검수 중...';
 
@@ -501,6 +504,9 @@ document.addEventListener('DOMContentLoaded', function() {
             alert('먼저 검수를 진행해주세요.');
             return;
         }
+
+        // DDL 분석 패널 자동 닫기
+        alterAnalysisPanel.classList.add('d-none');
 
         btnExecute.disabled = true;
         btnExecute.innerHTML = '<i class="bi bi-hourglass-split"></i> 실행 중...';
@@ -671,9 +677,57 @@ document.addEventListener('DOMContentLoaded', function() {
 // 클립보드 복사 함수
 function copyToClipboard(text) {
     navigator.clipboard.writeText(text).then(() => {
-        // 복사 성공 알림 (선택적)
+        // 토스트 메시지 표시
+        showToast('복사되었습니다');
     }).catch(err => {
         console.error('복사 실패:', err);
+        // 폴백: 텍스트 선택 방식
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-9999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+            document.execCommand('copy');
+            showToast('복사되었습니다');
+        } catch (e) {
+            showToast('복사 실패', 'danger');
+        }
+        document.body.removeChild(textArea);
+    });
+}
+
+// 토스트 메시지 표시 함수
+function showToast(message, type = 'success') {
+    // 토스트 컨테이너가 없으면 생성
+    let toastContainer = document.getElementById('toastContainer');
+    if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.id = 'toastContainer';
+        toastContainer.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+        toastContainer.style.zIndex = '9999';
+        document.body.appendChild(toastContainer);
+    }
+
+    const toastEl = document.createElement('div');
+    toastEl.className = `toast align-items-center text-white bg-${type} border-0`;
+    toastEl.setAttribute('role', 'alert');
+    toastEl.innerHTML = `
+        <div class="d-flex">
+            <div class="toast-body">
+                <i class="bi bi-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i> ${message}
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    `;
+    toastContainer.appendChild(toastEl);
+
+    const toast = new bootstrap.Toast(toastEl, { delay: 2000 });
+    toast.show();
+
+    toastEl.addEventListener('hidden.bs.toast', () => {
+        toastEl.remove();
     });
 }
 </script>

@@ -117,6 +117,11 @@ class HistoryFilterForm(forms.Form):
         widget=forms.Select(attrs={'class': 'form-select'}),
         label='상태'
     )
+    operator = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': '작업자명...'}),
+        label='작업자'
+    )
     search = forms.CharField(
         required=False,
         widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': '쿼리 내용 검색...'}),

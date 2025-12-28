@@ -30,12 +30,12 @@ urlpatterns = [
     path('connections/<int:pk>/schema/', views.SchemaVersionListView.as_view(), name='schema_version_list'),
     path('connections/<int:pk>/schema/diff/', views.SchemaDiffView.as_view(), name='schema_diff'),
 
-    # Version Management
-    path('versions/', views.VersionManagementView.as_view(), name='version_management'),
-    path('versions/timeline/<int:connection_id>/<str:table_name>/', views.VersionTimelineView.as_view(), name='version_timeline'),
-    path('versions/compare/', views.VersionCompareView.as_view(), name='version_compare'),
-    path('versions/<int:version_id>/rollback-ddl/', views.VersionRollbackDDLView.as_view(), name='version_rollback_ddl'),
-    path('versions/<int:version_id>/tag/', views.VersionTagView.as_view(), name='version_tag'),
+    # Version Management (비활성화 - 추후 재구현 예정)
+    # path('versions/', views.VersionManagementView.as_view(), name='version_management'),
+    # path('versions/timeline/<int:connection_id>/<str:table_name>/', views.VersionTimelineView.as_view(), name='version_timeline'),
+    # path('versions/compare/', views.VersionCompareView.as_view(), name='version_compare'),
+    # path('versions/<int:version_id>/rollback-ddl/', views.VersionRollbackDDLView.as_view(), name='version_rollback_ddl'),
+    # path('versions/<int:version_id>/tag/', views.VersionTagView.as_view(), name='version_tag'),
 
     # API Endpoints
     path('api/connections/<int:pk>/test/', views.ApiConnectionTestView.as_view(), name='api_connection_test'),
