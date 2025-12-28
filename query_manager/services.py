@@ -164,12 +164,13 @@ class QueryService:
 
         result['execution_time'] = time.time() - start_time
 
-        # 실행 이력 저장
+        # 실행 이력 저장 (executed_by와 operator 동기화)
         execution = QueryExecution.objects.create(
             connection=self.connection,
             query_text=query,
             query_type=query_type,
             executed_by=executed_by,
+            operator=executed_by,  # executed_by와 동일하게 설정
             status='SUCCESS' if result['success'] else 'FAILED',
             affected_rows=result['affected_rows'],
             execution_time=result['execution_time'],
@@ -684,26 +685,142 @@ class QueryService:
         """SELECT 쿼리 검증"""
         try:
             cursor.execute(f"EXPLAIN {query}")
+            # Semantic 분석: 컬럼 존재 여부 등은 EXPLAIN에서 자동 검증됨
         except pymysql.Error as e:
             error_msg = str(e)
             result['valid'] = False
             result['errors'].append(f'쿼리 오류: {self._parse_mysql_error(error_msg)}')
 
     def _validate_dml_query(self, cursor, query: str, result: dict):
-        """DML 쿼리 검증 (INSERT, UPDATE, DELETE)"""
+        """DML 쿼리 검증 (INSERT, UPDATE, DELETE) + Semantic 분석"""
         try:
-            # EXPLAIN으로 검증
+            # EXPLAIN으로 문법 및 기본 의미 검증
             cursor.execute(f"EXPLAIN {query}")
         except pymysql.Error as e:
             error_msg = str(e)
             result['valid'] = False
             result['errors'].append(f'쿼리 오류: {self._parse_mysql_error(error_msg)}')
+            return
+
+        # Semantic 분석 추가
+        self._semantic_analysis(cursor, query, result)
+
+    def _semantic_analysis(self, cursor, query: str, result: dict):
+        """의미론적 분석 수행"""
+        query_upper = query.upper()
+        table_name = self._extract_table_from_dml(query)
+
+        if not table_name:
+            return
+
+        # 테이블 정보 조회
+        try:
+            cursor.execute(f"DESCRIBE `{table_name}`")
+            columns_info = cursor.fetchall()
+            column_names = [col['Field'].lower() for col in columns_info]
+            column_types = {col['Field'].lower(): col for col in columns_info}
+        except pymysql.Error:
+            return  # 테이블 정보 조회 실패 시 스킵
+
+        # INSERT 문 분석
+        if query_upper.startswith('INSERT'):
+            self._analyze_insert(query, column_names, column_types, result)
+
+        # UPDATE 문 분석
+        elif query_upper.startswith('UPDATE'):
+            self._analyze_update(query, column_names, column_types, result)
+
+        # DELETE 문 분석
+        elif query_upper.startswith('DELETE'):
+            self._analyze_delete(cursor, query, table_name, result)
+
+    def _analyze_insert(self, query: str, column_names: list, column_types: dict, result: dict):
+        """INSERT 문 의미 분석"""
+        query_upper = query.upper()
+
+        # 컬럼 명시된 INSERT 체크
+        col_match = re.search(r'INSERT\s+INTO\s+`?\w+`?\s*\(([^)]+)\)', query, re.IGNORECASE)
+        if col_match:
+            specified_cols = [c.strip().strip('`').lower() for c in col_match.group(1).split(',')]
+
+            # 존재하지 않는 컬럼 체크
+            for col in specified_cols:
+                if col not in column_names:
+                    result['valid'] = False
+                    result['errors'].append(f"컬럼 '{col}'이(가) 테이블에 존재하지 않습니다.")
+
+        # NOT NULL 컬럼 체크 (VALUES 절에 NULL 삽입 시도)
+        for col_name, col_info in column_types.items():
+            if col_info.get('Null') == 'NO' and col_info.get('Default') is None:
+                if col_info.get('Extra') != 'auto_increment':
+                    # NOT NULL이면서 기본값 없는 컬럼
+                    if col_match:
+                        specified_cols = [c.strip().strip('`').lower() for c in col_match.group(1).split(',')]
+                        if col_name not in specified_cols:
+                            result['warnings'].append(f"필수 컬럼 '{col_name}'이(가) INSERT에 누락되었을 수 있습니다.")
+
+    def _analyze_update(self, query: str, column_names: list, column_types: dict, result: dict):
+        """UPDATE 문 의미 분석"""
+        # SET 절에서 컬럼 추출
+        set_match = re.search(r'SET\s+(.+?)(?:WHERE|$)', query, re.IGNORECASE | re.DOTALL)
+        if set_match:
+            set_clause = set_match.group(1)
+            # 간단한 컬럼명 추출 (복잡한 표현식은 건너뜀)
+            col_pattern = r'`?(\w+)`?\s*='
+            for match in re.finditer(col_pattern, set_clause):
+                col_name = match.group(1).lower()
+                if col_name not in column_names:
+                    result['valid'] = False
+                    result['errors'].append(f"컬럼 '{col_name}'이(가) 테이블에 존재하지 않습니다.")
+
+        # WHERE 절에서 컬럼 체크
+        where_match = re.search(r'WHERE\s+(.+)$', query, re.IGNORECASE | re.DOTALL)
+        if where_match:
+            where_clause = where_match.group(1)
+            col_pattern = r'`?(\w+)`?\s*(?:=|<|>|<=|>=|<>|!=|LIKE|IN|IS)'
+            for match in re.finditer(col_pattern, where_clause, re.IGNORECASE):
+                col_name = match.group(1).lower()
+                # 예약어나 함수는 제외
+                if col_name not in ['and', 'or', 'not', 'null', 'true', 'false', 'like', 'in', 'is', 'between']:
+                    if col_name not in column_names:
+                        result['warnings'].append(f"WHERE 절의 컬럼 '{col_name}'이(가) 존재하지 않을 수 있습니다.")
+
+    def _analyze_delete(self, cursor, query: str, table_name: str, result: dict):
+        """DELETE 문 의미 분석"""
+        # 외래 키 제약 조건 체크
+        try:
+            cursor.execute("""
+                SELECT
+                    TABLE_NAME,
+                    CONSTRAINT_NAME,
+                    REFERENCED_TABLE_NAME
+                FROM information_schema.KEY_COLUMN_USAGE
+                WHERE REFERENCED_TABLE_NAME = %s
+                AND TABLE_SCHEMA = DATABASE()
+            """, (table_name,))
+
+            fk_refs = cursor.fetchall()
+            if fk_refs:
+                ref_tables = [fk['TABLE_NAME'] for fk in fk_refs]
+                result['warnings'].append(
+                    f"이 테이블을 참조하는 외래 키가 있습니다: {', '.join(ref_tables)}. "
+                    f"CASCADE 설정에 따라 연쇄 삭제될 수 있습니다."
+                )
+        except pymysql.Error:
+            pass
 
     def _validate_table_exists(self, cursor, tables: list, result: dict):
         """테이블 존재 여부 확인"""
         for table_name in tables:
+            # db.table 형식 처리
+            if '.' in table_name:
+                parts = table_name.split('.', 1)
+                check_name = parts[1]
+            else:
+                check_name = table_name
+
             try:
-                cursor.execute(f"SHOW TABLES LIKE %s", (table_name,))
+                cursor.execute(f"SHOW TABLES LIKE %s", (check_name,))
                 if not cursor.fetchone():
                     result['warnings'].append(f"테이블 '{table_name}'이(가) 존재하지 않을 수 있습니다.")
             except pymysql.Error:
@@ -861,7 +978,7 @@ class QueryService:
                                 connection=self.connection,
                                 query_text=queries[qr['index']],
                                 query_type=qr['query_type'],
-                                executed_by='',
+                                executed_by=operator,  # operator와 동기화
                                 operator=operator,
                                 status='FAILED' if qr.get('error') else 'SUCCESS',
                                 affected_rows=qr['affected_rows'],
@@ -889,7 +1006,7 @@ class QueryService:
                         connection=self.connection,
                         query_text=queries[qr['index']],
                         query_type=qr['query_type'],
-                        executed_by='',
+                        executed_by=operator,  # operator와 동기화
                         operator=operator,
                         status='SUCCESS',
                         affected_rows=qr['affected_rows'],

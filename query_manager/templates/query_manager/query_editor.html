@@ -346,6 +346,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // ALTER 분석 결과 표시 (개선된 UI)
     function showAlterAnalysis(data) {
+        // 복사할 쿼리 저장 (전역)
+        window.alterAnalysisCopyData = data.copyable_queries || [];
+
         let html = `
             <p><strong>테이블:</strong> <code>${data.table_name}</code></p>
             <p><strong>작업:</strong> ${data.operation}</p>
@@ -356,27 +359,23 @@ document.addEventListener('DOMContentLoaded', function() {
 
         data.suggestions.forEach((suggestion, idx) => {
             const combinedOption = suggestion.combined_option || `${suggestion.option}, ${suggestion.lock}`;
-            const copyableQuery = data.copyable_queries ? data.copyable_queries[idx] : '';
+            const badgeClass = suggestion.impact === '매우 낮음' ? 'success' :
+                              suggestion.impact === '낮음' ? 'info' :
+                              suggestion.impact === '중간' ? 'warning' : 'danger';
 
             html += `
                 <div class="list-group-item">
                     <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <strong><code>${combinedOption}</code></strong>
-                            <span class="copy-btn ms-2" onclick="copyToClipboard('${combinedOption}')" title="옵션 복사">
+                        <div class="d-flex align-items-center">
+                            <code class="me-2 user-select-all">${combinedOption}</code>
+                            <button type="button" class="btn btn-sm btn-outline-secondary copy-query-btn"
+                                    data-copy-index="${idx}" title="쿼리 복사">
                                 <i class="bi bi-clipboard"></i>
-                            </span>
-                        </div>
-                        <span class="badge bg-${suggestion.impact === '매우 낮음' ? 'success' : suggestion.impact === '낮음' ? 'info' : suggestion.impact === '중간' ? 'warning' : 'danger'}">${suggestion.impact}</span>
-                    </div>
-                    <p class="mb-1 text-muted small">${suggestion.description}</p>
-                    ${copyableQuery ? `
-                        <div class="mt-2">
-                            <button class="btn btn-sm btn-outline-primary" onclick="copyToClipboard(\`${copyableQuery.replace(/`/g, '\\`')}\`)">
-                                <i class="bi bi-clipboard"></i> 전체 쿼리 복사
                             </button>
                         </div>
-                    ` : ''}
+                        <span class="badge bg-${badgeClass}">${suggestion.impact}</span>
+                    </div>
+                    <p class="mb-0 mt-1 text-muted small">${suggestion.description}</p>
                 </div>
             `;
         });
@@ -385,6 +384,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
         document.getElementById('alter-analysis-content').innerHTML = html;
         alterAnalysisPanel.classList.remove('d-none');
+
+        // 복사 버튼 이벤트 바인딩
+        document.querySelectorAll('.copy-query-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const idx = parseInt(this.dataset.copyIndex);
+                const queryToCopy = window.alterAnalysisCopyData[idx];
+                if (queryToCopy) {
+                    copyToClipboard(queryToCopy);
+                }
+            });
+        });
     }
 
     // 검수 (Review)

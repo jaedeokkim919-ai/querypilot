@@ -171,7 +171,12 @@ class QueryExecuteView(View):
             data = json.loads(request.body)
             connection_id = data.get('connection_id')
             query = data.get('query', '').strip()
-            executed_by = request.user.username if request.user.is_authenticated else 'anonymous'
+            operator = data.get('operator', '').strip()
+
+            # 작업자(operator)를 executed_by로 사용
+            executed_by = operator if operator else (
+                request.user.username if request.user.is_authenticated else 'anonymous'
+            )
 
             if not connection_id:
                 return JsonResponse({'success': False, 'error': '연결을 선택해주세요.'})
