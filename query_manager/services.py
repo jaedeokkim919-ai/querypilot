@@ -121,17 +121,19 @@ class QueryService:
             'schema_after': '',
         }
 
-        # DDL인 경우 실행 전 스키마 저장
+        # DDL인 경우 테이블명 추출
         table_name = None
         if query_type == 'DDL':
             table_name = self._extract_table_name(query)
-            if table_name:
-                result['schema_before'] = self.get_table_schema(table_name)
 
         try:
             conn = self._get_db_connection()
             try:
                 with conn.cursor() as cursor:
+                    # DDL 실행 전 스키마 조회 (같은 커서 사용)
+                    if query_type == 'DDL' and table_name:
+                        result['schema_before'] = self.get_table_schema(table_name, cursor)
+
                     cursor.execute(query)
 
                     if query_type == 'SELECT':
@@ -145,16 +147,16 @@ class QueryService:
                         result['affected_rows'] = cursor.rowcount
                         conn.commit()
 
+                    # DDL 실행 후 스키마 조회 (같은 커서 사용)
+                    if query_type == 'DDL' and table_name:
+                        result['schema_after'] = self.get_table_schema(table_name, cursor)
+                        # 스키마 버전 저장
+                        if result['schema_after']:
+                            self._save_schema_version(table_name, result['schema_after'])
+
                 result['success'] = True
             finally:
                 conn.close()
-
-            # DDL인 경우 실행 후 스키마 저장
-            if query_type == 'DDL' and table_name:
-                result['schema_after'] = self.get_table_schema(table_name)
-                # 스키마 버전 저장
-                if result['schema_after']:
-                    self._save_schema_version(table_name, result['schema_after'])
 
         except pymysql.Error as e:
             result['error'] = str(e)
@@ -181,18 +183,39 @@ class QueryService:
 
         return result
 
-    def get_table_schema(self, table_name: str) -> str:
-        """테이블 스키마(CREATE TABLE) 조회"""
+    def get_table_schema(self, table_name: str, cursor=None) -> str:
+        """
+        테이블 스키마(CREATE TABLE) 조회
+
+        Args:
+            table_name: 테이블명 (db.table 형식도 지원)
+            cursor: 기존 커서 (제공되면 해당 커서 사용, 없으면 새 연결 생성)
+        """
+        # 테이블명에서 백틱 처리 (db.table 형식 지원)
+        if '.' in table_name:
+            parts = table_name.split('.', 1)
+            escaped_name = f"`{parts[0]}`.`{parts[1]}`"
+        else:
+            escaped_name = f"`{table_name}`"
+
         try:
-            conn = self._get_db_connection()
-            try:
-                with conn.cursor() as cursor:
-                    cursor.execute(f"SHOW CREATE TABLE `{table_name}`")
-                    row = cursor.fetchone()
-                    if row:
-                        return row.get('Create Table', '')
-            finally:
-                conn.close()
+            if cursor:
+                # 기존 커서 사용
+                cursor.execute(f"SHOW CREATE TABLE {escaped_name}")
+                row = cursor.fetchone()
+                if row:
+                    return row.get('Create Table', '')
+            else:
+                # 새 연결 생성
+                conn = self._get_db_connection()
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute(f"SHOW CREATE TABLE {escaped_name}")
+                        row = cur.fetchone()
+                        if row:
+                            return row.get('Create Table', '')
+                finally:
+                    conn.close()
         except pymysql.Error as e:
             logger.warning(f"Failed to get schema for {table_name}: {e}")
         return ''
@@ -369,19 +392,28 @@ class QueryService:
         return result
 
     def _extract_table_name(self, query: str) -> Optional[str]:
-        """쿼리에서 테이블명 추출"""
+        """쿼리에서 테이블명 추출 (db.table 형식 지원)"""
+        # 테이블명 패턴: `db`.`table`, db.table, `table`, table
+        table_pattern = r'(?:`?(\w+)`?\.)?`?(\w+)`?'
+
         patterns = [
-            r'ALTER\s+TABLE\s+`?(\w+)`?',
-            r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?(\w+)`?',
-            r'DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?`?(\w+)`?',
-            r'TRUNCATE\s+(?:TABLE\s+)?`?(\w+)`?',
-            r'RENAME\s+TABLE\s+`?(\w+)`?',
+            rf'ALTER\s+TABLE\s+{table_pattern}',
+            rf'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?{table_pattern}',
+            rf'DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?{table_pattern}',
+            rf'TRUNCATE\s+(?:TABLE\s+)?{table_pattern}',
+            rf'RENAME\s+TABLE\s+{table_pattern}',
         ]
 
         for pattern in patterns:
             match = re.search(pattern, query, re.IGNORECASE)
             if match:
-                return match.group(1)
+                # group(1)은 db명, group(2)는 테이블명
+                # db명이 있으면 db.table 형식으로 반환
+                db_name = match.group(1)
+                table_name = match.group(2)
+                if db_name:
+                    return f"{db_name}.{table_name}"
+                return table_name
         return None
 
     def _save_schema_version(self, table_name: str, schema_definition: str):
@@ -789,11 +821,13 @@ class QueryService:
                     table_name = None
                     if query_type == 'DDL':
                         table_name = self._extract_table_name(query)
-                        if table_name:
-                            query_result['schema_before'] = self.get_table_schema(table_name)
 
                     try:
                         with conn.cursor() as cursor:
+                            # DDL 실행 전 스키마 조회 (같은 커서 사용)
+                            if query_type == 'DDL' and table_name:
+                                query_result['schema_before'] = self.get_table_schema(table_name, cursor)
+
                             cursor.execute(query)
 
                             if query_type == 'SELECT':
@@ -802,12 +836,12 @@ class QueryService:
                             else:
                                 query_result['affected_rows'] = cursor.rowcount
 
+                            # DDL 실행 후 스키마 조회 (같은 커서 사용)
+                            if query_type == 'DDL' and table_name:
+                                query_result['schema_after'] = self.get_table_schema(table_name, cursor)
+
                         query_result['success'] = True
                         query_result['execution_time'] = time.time() - start_time
-
-                        # DDL 후 스키마 저장
-                        if query_type == 'DDL' and table_name:
-                            query_result['schema_after'] = self.get_table_schema(table_name)
 
                     except pymysql.Error as e:
                         query_result['error'] = str(e)

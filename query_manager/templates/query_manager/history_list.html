@@ -233,7 +233,8 @@
                 </div>
                 <div id="compareError" class="alert alert-danger" style="display: none;"></div>
                 <div id="compareNoData" class="alert alert-warning" style="display: none;">
-                    <i class="bi bi-info-circle"></i> 이 DDL 실행에 대한 스키마 버전 정보가 없습니다.
+                    <i class="bi bi-info-circle"></i> 이 DDL 실행에 대한 스키마 정보가 없습니다.
+                    <br><small class="text-muted">이전 버전에서 실행된 쿼리이거나, 테이블이 생성/삭제되어 스키마를 조회할 수 없습니다.</small>
                 </div>
             </div>
             <div class="modal-footer">
@@ -299,8 +300,29 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.getElementById('compareExecutedAt').textContent = data.executed_at || '';
                 document.getElementById('compareQuery').textContent = data.query_text ? (data.query_text.length > 50 ? data.query_text.substring(0, 50) + '...' : data.query_text) : '';
                 document.getElementById('compareQuery').title = data.query_text || '';
-                document.getElementById('schemaBefore').textContent = data.before_schema || '(이전 스키마 없음)';
-                document.getElementById('schemaAfter').textContent = data.after_schema || '(스키마 없음)';
+
+                // 스키마 상태에 따른 메시지
+                const beforeSchema = data.before_schema || '';
+                const afterSchema = data.after_schema || '';
+
+                if (!beforeSchema && afterSchema) {
+                    // CREATE TABLE인 경우
+                    document.getElementById('schemaBefore').innerHTML = '<span class="text-muted">(테이블 생성 전 - 스키마 없음)</span>';
+                } else if (beforeSchema && !afterSchema) {
+                    // DROP TABLE인 경우
+                    document.getElementById('schemaBefore').textContent = beforeSchema;
+                } else {
+                    document.getElementById('schemaBefore').textContent = beforeSchema || '(스키마 조회 실패)';
+                }
+
+                if (afterSchema) {
+                    document.getElementById('schemaAfter').textContent = afterSchema;
+                } else if (beforeSchema) {
+                    // DROP TABLE인 경우
+                    document.getElementById('schemaAfter').innerHTML = '<span class="text-muted">(테이블 삭제됨 - 스키마 없음)</span>';
+                } else {
+                    document.getElementById('schemaAfter').textContent = '(스키마 조회 실패)';
+                }
 
                 // Format diff with colors
                 if (data.diff_lines && data.diff_lines.length > 0) {
