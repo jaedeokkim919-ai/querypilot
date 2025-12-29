@@ -130,12 +130,14 @@ class HistoryFilterForm(forms.Form):
     date_from = forms.DateField(
         required=False,
         widget=forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
-        label='시작일'
+        label='시작일',
+        input_formats=['%Y-%m-%d', '%Y/%m/%d', '%d-%m-%Y', '%d/%m/%Y']
     )
     date_to = forms.DateField(
         required=False,
         widget=forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
-        label='종료일'
+        label='종료일',
+        input_formats=['%Y-%m-%d', '%Y/%m/%d', '%d-%m-%Y', '%d/%m/%Y']
     )
 
 

@@ -58,6 +58,7 @@ class QueryService:
             'message': '',
             'server_info': None,
             'databases': [],
+            'hostname': '',
         }
 
         try:
@@ -70,6 +71,14 @@ class QueryService:
                     result['server_info'] = {
                         'version': row['version'] if row else 'Unknown'
                     }
+
+                    # 호스트명 조회
+                    try:
+                        cursor.execute("SELECT @@hostname as hostname")
+                        hostname_row = cursor.fetchone()
+                        result['hostname'] = hostname_row['hostname'] if hostname_row else ''
+                    except pymysql.Error:
+                        result['hostname'] = ''
 
                     # 데이터베이스 목록 조회
                     cursor.execute("SHOW DATABASES")

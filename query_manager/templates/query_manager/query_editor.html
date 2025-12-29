@@ -52,12 +52,17 @@
             </div>
             <div class="col-md-2">
                 <label class="form-label">데이터베이스</label>
-                <select id="database-select" class="form-select" {% if not selected_connection %}disabled{% endif %}>
-                    <option value="">선택...</option>
-                    {% for db in databases %}
-                        <option value="{{ db }}">{{ db }}</option>
-                    {% endfor %}
-                </select>
+                <div class="input-group">
+                    <select id="database-select" class="form-select" {% if not selected_connection %}disabled{% endif %}>
+                        <option value="">선택...</option>
+                        {% for db in databases %}
+                            <option value="{{ db }}">{{ db }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="button" id="btn-insert-database" class="btn btn-outline-secondary" title="에디터에 삽입">
+                        <i class="bi bi-plus-lg"></i>
+                    </button>
+                </div>
             </div>
             <div class="col-md-2" id="table-dropdown-container" style="display: none;">
                 <label class="form-label">테이블</label>
@@ -74,13 +79,13 @@
                 <label class="form-label">작업자 <span class="text-danger">*</span></label>
                 <input type="text" id="operator-input" class="form-control" placeholder="작업자명" required>
             </div>
-            <div class="col-md-2">
-                <button type="button" id="btn-test-connection" class="btn btn-outline-secondary w-100" disabled>
-                    <i class="bi bi-plug"></i> 연결 테스트
+            <div class="col-md-1">
+                <button type="button" id="btn-test-connection" class="btn btn-outline-secondary w-100" disabled title="연결 테스트">
+                    <i class="bi bi-plug"></i>
                 </button>
             </div>
-            <div class="col-md-1 text-end">
-                <div id="connection-status"></div>
+            <div class="col-md-2">
+                <div id="connection-status" class="small"></div>
             </div>
         </div>
     </div>
@@ -211,6 +216,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const tableSelect = document.getElementById('table-select');
     const tableDropdownContainer = document.getElementById('table-dropdown-container');
     const btnInsertTable = document.getElementById('btn-insert-table');
+    const btnInsertDatabase = document.getElementById('btn-insert-database');
     const operatorInput = document.getElementById('operator-input');
     const btnTestConnection = document.getElementById('btn-test-connection');
     const btnAnalyze = document.getElementById('btn-analyze');
@@ -292,6 +298,16 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    // 데이터베이스 삽입
+    btnInsertDatabase.addEventListener('click', function() {
+        const dbName = databaseSelect.value;
+        if (dbName) {
+            const cursor = editor.getCursor();
+            editor.replaceRange(dbName, cursor);
+            editor.focus();
+        }
+    });
+
     // 연결 테스트
     btnTestConnection.addEventListener('click', function() {
         const connectionId = connectionSelect.value;
@@ -309,7 +325,11 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                connectionStatus.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i></span>`;
+                let statusHtml = `<span class="text-success"><i class="bi bi-check-circle"></i></span>`;
+                if (data.hostname) {
+                    statusHtml += `<br><small class="text-muted" title="호스트: ${data.hostname}"><i class="bi bi-server"></i> ${data.hostname}</small>`;
+                }
+                connectionStatus.innerHTML = statusHtml;
             } else {
                 connectionStatus.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i></span>`;
             }
