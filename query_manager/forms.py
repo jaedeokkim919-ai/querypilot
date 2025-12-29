@@ -12,7 +12,7 @@ class DatabaseConnectionForm(forms.ModelForm):
 
     class Meta:
         model = DatabaseConnection
-        fields = ['name', 'host', 'port', 'database', 'username', 'password', 'schema', 'is_active']
+        fields = ['name', 'host', 'port', 'database', 'username', 'password', 'schema', 'hosts', 'is_active']
         widgets = {
             'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '연결 이름'}),
             'host': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'localhost'}),
@@ -20,11 +20,17 @@ class DatabaseConnectionForm(forms.ModelForm):
             'database': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '데이터베이스명 (선택)'}),
             'username': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'root'}),
             'schema': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '스키마 (선택)'}),
+            'hosts': forms.Textarea(attrs={
+                'class': 'form-control',
+                'rows': 4,
+                'placeholder': 'db-server-01.example.com\ndb-server-02.example.com\ndb-server-03.example.com'
+            }),
             'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }
         help_texts = {
             'database': '비워두면 서버 레벨 연결로 사용됩니다.',
             'schema': 'MariaDB의 경우 보통 비워둡니다.',
+            'hosts': '다중 서버 지원: 여러 호스트를 줄바꿈으로 구분하여 입력. 비워두면 위의 호스트만 사용됩니다.',
         }
 
 

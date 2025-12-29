@@ -1,0 +1,449 @@
+{% extends 'query_manager/base.html' %}
+
+{% block title %}배치 실행 - QueryPilot{% endblock %}
+
+{% block extra_css %}
+<link href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/addon/hint/show-hint.min.css" rel="stylesheet">
+<style>
+    .CodeMirror {
+        height: 250px;
+        font-size: 14px;
+    }
+    .log-output {
+        max-height: 300px;
+        overflow-y: auto;
+        font-family: monospace;
+        font-size: 13px;
+        background: #1e1e1e;
+        color: #d4d4d4;
+        padding: 10px;
+        border-radius: 4px;
+    }
+    .log-output .log-success { color: #4ec9b0; }
+    .log-output .log-error { color: #f14c4c; }
+    .log-output .log-info { color: #3794ff; }
+    .log-output .log-warning { color: #cca700; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h2><i class="bi bi-collection"></i> 배치 실행</h2>
+        <p class="text-muted">대량의 쿼리를 배치 단위로 분할하여 안전하게 실행합니다.</p>
+    </div>
+</div>
+
+<!-- 설정 영역 -->
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-gear"></i> 실행 설정
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label">DB 연결 <span class="text-danger">*</span></label>
+                <select id="connection-select" class="form-select">
+                    <option value="">연결을 선택하세요...</option>
+                    {% for conn in connections %}
+                        <option value="{{ conn.pk }}">{{ conn.name }} ({{ conn.host }}:{{ conn.port }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">배치 크기</label>
+                <input type="number" id="batch-size" class="form-control" value="10" min="1" max="1000">
+                <small class="text-muted">한 번에 실행할 쿼리 수</small>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Sleep (초)</label>
+                <input type="number" id="sleep-time" class="form-control" value="1" min="0" max="60" step="0.5">
+                <small class="text-muted">배치 간 대기 시간</small>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">작업자 <span class="text-danger">*</span></label>
+                <input type="text" id="operator-input" class="form-control" placeholder="작업자명" required>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <button type="button" id="btn-test-connection" class="btn btn-outline-secondary w-100" disabled>
+                    <i class="bi bi-plug"></i> 연결 테스트
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SQL 에디터 -->
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-code"></i> SQL 쿼리
+        <small class="text-muted ms-2">세미콜론(;)으로 여러 쿼리를 구분</small>
+    </div>
+    <div class="card-body p-0">
+        <textarea id="sql-editor">-- 여러 쿼리를 세미콜론으로 구분하여 입력하세요
+-- 예시:
+-- INSERT INTO table1 VALUES (1, 'a');
+-- INSERT INTO table1 VALUES (2, 'b');
+-- INSERT INTO table1 VALUES (3, 'c');</textarea>
+    </div>
+</div>
+
+<!-- 실행 버튼 -->
+<div class="mb-4">
+    <button id="btn-execute" class="btn btn-primary" disabled>
+        <i class="bi bi-play-fill"></i> 실행
+    </button>
+    <button id="btn-stop" class="btn btn-danger d-none">
+        <i class="bi bi-stop-fill"></i> 중지
+    </button>
+    <span id="query-count" class="text-muted ms-3"></span>
+</div>
+
+<!-- 진행 상황 -->
+<div class="card mb-4 d-none" id="progress-card">
+    <div class="card-header">
+        <i class="bi bi-hourglass-split"></i> 진행 상황
+    </div>
+    <div class="card-body">
+        <div class="progress mb-3" style="height: 25px;">
+            <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
+                 role="progressbar" style="width: 0%;">0%</div>
+        </div>
+        <div class="row">
+            <div class="col-md-4">
+                <strong>상태:</strong> <span id="status-text">대기 중</span>
+            </div>
+            <div class="col-md-4">
+                <strong>진행:</strong> <span id="progress-text">0 / 0 쿼리</span>
+            </div>
+            <div class="col-md-4">
+                <strong>배치:</strong> <span id="batch-text">0 / 0 배치</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 실행 로그 -->
+<div class="card" id="log-card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-terminal"></i> 실행 로그</span>
+        <button type="button" id="btn-clear-log" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-trash"></i> 로그 지우기
+        </button>
+    </div>
+    <div class="card-body p-0">
+        <div id="log-output" class="log-output">
+            <div class="log-info">[INFO] 배치 실행 준비 완료. 쿼리를 입력하고 실행 버튼을 클릭하세요.</div>
+        </div>
+    </div>
+</div>
+
+<!-- 실행 결과 요약 -->
+<div class="card mt-4 d-none" id="result-card">
+    <div class="card-header">
+        <i class="bi bi-clipboard-check"></i> 실행 결과 요약
+    </div>
+    <div class="card-body" id="result-content">
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // CodeMirror 초기화
+    const editor = CodeMirror.fromTextArea(document.getElementById('sql-editor'), {
+        mode: 'text/x-mariadb',
+        theme: 'dracula',
+        lineNumbers: true,
+        indentWithTabs: true,
+        smartIndent: true,
+        lineWrapping: true,
+        matchBrackets: true,
+        autofocus: true
+    });
+
+    const connectionSelect = document.getElementById('connection-select');
+    const batchSizeInput = document.getElementById('batch-size');
+    const sleepTimeInput = document.getElementById('sleep-time');
+    const operatorInput = document.getElementById('operator-input');
+    const btnTestConnection = document.getElementById('btn-test-connection');
+    const btnExecute = document.getElementById('btn-execute');
+    const btnStop = document.getElementById('btn-stop');
+    const btnClearLog = document.getElementById('btn-clear-log');
+    const queryCountSpan = document.getElementById('query-count');
+    const progressCard = document.getElementById('progress-card');
+    const progressBar = document.getElementById('progress-bar');
+    const statusText = document.getElementById('status-text');
+    const progressText = document.getElementById('progress-text');
+    const batchText = document.getElementById('batch-text');
+    const logOutput = document.getElementById('log-output');
+    const resultCard = document.getElementById('result-card');
+    const resultContent = document.getElementById('result-content');
+
+    let currentBatchId = null;
+
+    // 연결 선택 시
+    connectionSelect.addEventListener('change', function() {
+        const hasConnection = !!this.value;
+        btnTestConnection.disabled = !hasConnection;
+        updateExecuteButton();
+    });
+
+    // 에디터 변경 시 쿼리 수 표시
+    editor.on('change', function() {
+        const content = editor.getValue().trim();
+        if (content && !content.startsWith('--')) {
+            // 간단한 쿼리 수 계산 (세미콜론 기준)
+            const queries = content.split(';').filter(q => q.trim() && !q.trim().startsWith('--'));
+            queryCountSpan.textContent = `예상 쿼리 수: ${queries.length}개`;
+        } else {
+            queryCountSpan.textContent = '';
+        }
+        updateExecuteButton();
+    });
+
+    // 작업자 입력 시
+    operatorInput.addEventListener('input', updateExecuteButton);
+
+    function updateExecuteButton() {
+        const hasConnection = !!connectionSelect.value;
+        const hasQuery = editor.getValue().trim().length > 0;
+        const hasOperator = operatorInput.value.trim().length > 0;
+        btnExecute.disabled = !(hasConnection && hasQuery && hasOperator);
+    }
+
+    // 연결 테스트
+    btnTestConnection.addEventListener('click', function() {
+        const connectionId = connectionSelect.value;
+        if (!connectionId) return;
+
+        addLog('info', '연결 테스트 중...');
+
+        fetch(`/api/connections/${connectionId}/test/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrftoken
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                addLog('success', `연결 성공: ${data.hostname || '호스트 정보 없음'}`);
+            } else {
+                addLog('error', `연결 실패: ${data.message || '알 수 없는 오류'}`);
+            }
+        })
+        .catch(err => {
+            addLog('error', `연결 테스트 오류: ${err.message}`);
+        });
+    });
+
+    // 배치 실행
+    btnExecute.addEventListener('click', function() {
+        const connectionId = connectionSelect.value;
+        const query = editor.getValue().trim();
+        const batchSize = parseInt(batchSizeInput.value) || 10;
+        const sleepTime = parseFloat(sleepTimeInput.value) || 0;
+        const operator = operatorInput.value.trim();
+
+        if (!connectionId || !query || !operator) {
+            alert('모든 필수 항목을 입력해주세요.');
+            return;
+        }
+
+        // UI 상태 변경
+        btnExecute.classList.add('d-none');
+        btnStop.classList.remove('d-none');
+        progressCard.classList.remove('d-none');
+        resultCard.classList.add('d-none');
+
+        // 진행 상황 초기화
+        updateProgress(0, 0, 0, 0, 'running');
+        addLog('info', `배치 실행 시작 - 배치 크기: ${batchSize}, Sleep: ${sleepTime}초`);
+
+        fetch('/batch/execute/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrftoken
+            },
+            body: JSON.stringify({
+                connection_id: connectionId,
+                query: query,
+                batch_size: batchSize,
+                sleep_time: sleepTime,
+                operator: operator
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                currentBatchId = data.batch_id;
+                addLog('success', `배치 실행 완료 - 배치 ID: ${data.batch_id}`);
+                addLog('info', `총 ${data.total_queries}개 쿼리, ${data.total_batches}개 배치, 영향받은 행: ${data.total_affected_rows}`);
+
+                // 결과 표시
+                showResults(data);
+                updateProgress(data.completed, data.total_queries, data.total_batches, data.total_batches, data.status);
+            } else {
+                addLog('error', `실행 실패: ${data.error}`);
+                updateProgress(0, 0, 0, 0, 'failed');
+            }
+
+            // UI 복원
+            btnExecute.classList.remove('d-none');
+            btnStop.classList.add('d-none');
+        })
+        .catch(err => {
+            addLog('error', `오류 발생: ${err.message}`);
+            btnExecute.classList.remove('d-none');
+            btnStop.classList.add('d-none');
+            updateProgress(0, 0, 0, 0, 'failed');
+        });
+    });
+
+    // 중지 버튼
+    btnStop.addEventListener('click', function() {
+        if (currentBatchId) {
+            fetch(`/batch/stop/${currentBatchId}/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrftoken
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    addLog('warning', '중지 요청됨');
+                }
+            });
+        }
+    });
+
+    // 로그 지우기
+    btnClearLog.addEventListener('click', function() {
+        logOutput.innerHTML = '<div class="log-info">[INFO] 로그가 지워졌습니다.</div>';
+    });
+
+    // 로그 추가
+    function addLog(type, message) {
+        const timestamp = new Date().toLocaleTimeString();
+        const typeLabel = type.toUpperCase();
+        const logClass = `log-${type}`;
+        const logLine = document.createElement('div');
+        logLine.className = logClass;
+        logLine.textContent = `[${timestamp}] [${typeLabel}] ${message}`;
+        logOutput.appendChild(logLine);
+        logOutput.scrollTop = logOutput.scrollHeight;
+    }
+
+    // 진행 상황 업데이트
+    function updateProgress(completed, total, currentBatch, totalBatches, status) {
+        const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+        progressBar.style.width = `${percent}%`;
+        progressBar.textContent = `${percent}%`;
+
+        progressText.textContent = `${completed} / ${total} 쿼리`;
+        batchText.textContent = `${currentBatch} / ${totalBatches} 배치`;
+
+        const statusLabels = {
+            'running': '실행 중',
+            'completed': '완료',
+            'stopped': '중지됨',
+            'failed': '실패'
+        };
+        statusText.textContent = statusLabels[status] || status;
+
+        // 진행 바 색상
+        progressBar.classList.remove('bg-success', 'bg-danger', 'bg-warning');
+        if (status === 'completed') {
+            progressBar.classList.add('bg-success');
+            progressBar.classList.remove('progress-bar-animated');
+        } else if (status === 'failed') {
+            progressBar.classList.add('bg-danger');
+            progressBar.classList.remove('progress-bar-animated');
+        } else if (status === 'stopped') {
+            progressBar.classList.add('bg-warning');
+            progressBar.classList.remove('progress-bar-animated');
+        }
+    }
+
+    // 결과 표시
+    function showResults(data) {
+        resultCard.classList.remove('d-none');
+
+        let html = `
+            <div class="row mb-3">
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body py-2">
+                            <h4 class="mb-0">${data.total_queries}</h4>
+                            <small class="text-muted">총 쿼리</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body py-2">
+                            <h4 class="mb-0">${data.completed}</h4>
+                            <small class="text-muted">실행 완료</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body py-2">
+                            <h4 class="mb-0">${data.total_batches}</h4>
+                            <small class="text-muted">총 배치</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body py-2">
+                            <h4 class="mb-0">${data.total_affected_rows}</h4>
+                            <small class="text-muted">영향받은 행</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <h6>배치별 결과:</h6>
+            <div class="table-responsive">
+                <table class="table table-sm table-bordered">
+                    <thead>
+                        <tr>
+                            <th>배치</th>
+                            <th>상태</th>
+                            <th>쿼리 수</th>
+                            <th>성공</th>
+                            <th>영향받은 행</th>
+                            <th>오류</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+
+        data.results.forEach(batch => {
+            const statusClass = batch.success ? 'table-success' : 'table-danger';
+            const statusIcon = batch.success ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-danger"></i>';
+            html += `
+                <tr class="${statusClass}">
+                    <td>#${batch.batch_num}</td>
+                    <td>${statusIcon}</td>
+                    <td>${batch.query_count}</td>
+                    <td>${batch.successful}</td>
+                    <td>${batch.affected_rows}</td>
+                    <td>${batch.error || '-'}</td>
+                </tr>
+            `;
+        });
+
+        html += '</tbody></table></div>';
+        resultContent.innerHTML = html;
+    }
+});
+</script>
+{% endblock %}

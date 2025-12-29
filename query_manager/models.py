@@ -14,6 +14,14 @@ class DatabaseConnection(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='생성일')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='수정일')
 
+    # 다중 서버 지원
+    hosts = models.TextField(
+        blank=True,
+        default='',
+        verbose_name='호스트 목록',
+        help_text='여러 호스트를 줄바꿈으로 구분'
+    )
+
     class Meta:
         verbose_name = '데이터베이스 연결'
         verbose_name_plural = '데이터베이스 연결 목록'
@@ -29,6 +37,20 @@ class DatabaseConnection(models.Model):
         if self.database:
             return f"{self.host}:{self.port}/{self.database}"
         return f"{self.host}:{self.port}"
+
+    def get_hosts_list(self) -> list:
+        """호스트 목록 반환 (다중 서버 지원)"""
+        if self.hosts.strip():
+            return [h.strip() for h in self.hosts.strip().split('\n') if h.strip()]
+        return [self.host] if self.host else []
+
+    def is_multi_server(self) -> bool:
+        """다중 서버 여부 확인"""
+        return len(self.get_hosts_list()) > 1
+
+    def get_hosts_count(self) -> int:
+        """호스트 개수 반환"""
+        return len(self.get_hosts_list())
 
 
 class QueryExecution(models.Model):

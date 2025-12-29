@@ -13,14 +13,17 @@
         max-height: 500px;
         overflow: auto;
     }
-    .alter-suggestion {
-        background: #fff3cd;
-        border-left: 4px solid #ffc107;
-    }
     .diff-added { background-color: #d4edda; }
     .diff-removed { background-color: #f8d7da; }
     .copy-btn { cursor: pointer; }
     .copy-btn:hover { color: #0d6efd; }
+    .section-card {
+        border-left: 3px solid #0d6efd;
+    }
+    .section-card.section-connection { border-left-color: #6c757d; }
+    .section-card.section-editor { border-left-color: #0d6efd; }
+    .section-card.section-confirmation { border-left-color: #198754; }
+    .section-card.section-result { border-left-color: #ffc107; }
 </style>
 {% endblock %}
 
@@ -31,8 +34,11 @@
     </div>
 </div>
 
-<!-- Connection Selector -->
-<div class="card mb-4">
+<!-- ============ 섹션 1: DB 연결 ============ -->
+<div class="card mb-4 section-card section-connection" id="section-connection">
+    <div class="card-header">
+        <i class="bi bi-plug"></i> DB 연결
+    </div>
     <div class="card-body">
         <div class="row g-3 align-items-end">
             <div class="col-md-3">
@@ -76,34 +82,27 @@
                 </div>
             </div>
             <div class="col-md-2">
-                <label class="form-label">작업자 <span class="text-danger">*</span></label>
-                <input type="text" id="operator-input" class="form-control" placeholder="작업자명" required>
-            </div>
-            <div class="col-md-1">
                 <button type="button" id="btn-test-connection" class="btn btn-outline-secondary w-100" disabled title="연결 테스트">
-                    <i class="bi bi-plug"></i>
+                    <i class="bi bi-plug"></i> 연결 확인
                 </button>
             </div>
-            <div class="col-md-2">
+            <div class="col-md-3">
                 <div id="connection-status" class="small"></div>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Query Editor -->
-<div class="card mb-4">
+<!-- ============ 섹션 2: SQL 에디터 ============ -->
+<div class="card mb-4 section-card section-editor" id="section-editor">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="bi bi-code"></i> SQL 에디터</span>
         <div>
             <button type="button" id="btn-analyze" class="btn btn-sm btn-outline-info me-2" disabled>
                 <i class="bi bi-lightbulb"></i> 온라인 DDL 분석
             </button>
-            <button type="button" id="btn-review" class="btn btn-sm btn-warning me-2" disabled>
+            <button type="button" id="btn-review" class="btn btn-sm btn-warning" disabled>
                 <i class="bi bi-check2-square"></i> 검수
-            </button>
-            <button type="button" id="btn-execute" class="btn btn-sm btn-primary" disabled>
-                <i class="bi bi-play-fill"></i> 실행
             </button>
         </div>
     </div>
@@ -112,17 +111,7 @@
     </div>
 </div>
 
-<!-- Query Preview Panel (shown after review) -->
-<div id="query-preview-panel" class="card mb-4 d-none">
-    <div class="card-header bg-success bg-opacity-25 d-flex justify-content-between align-items-center">
-        <h6 class="mb-0"><i class="bi bi-check-circle"></i> 검수 완료 - 실행 대기</h6>
-        <span id="query-count-badge" class="badge bg-primary"></span>
-    </div>
-    <div class="card-body" id="query-preview-content">
-    </div>
-</div>
-
-<!-- ALTER Analysis Panel (hidden by default) -->
+<!-- ALTER Analysis Panel (에디터 섹션 하단에 표시) -->
 <div id="alter-analysis-panel" class="card mb-4 d-none">
     <div class="card-header bg-warning bg-opacity-25">
         <h6 class="mb-0"><i class="bi bi-lightbulb"></i> 온라인 DDL 분석</h6>
@@ -131,14 +120,58 @@
     </div>
 </div>
 
-<!-- Result Panel -->
-<div class="card">
+<!-- ============ 섹션 3: 실행 전 확인 ============ -->
+<div class="card mb-4 section-card section-confirmation d-none" id="section-confirmation">
+    <div class="card-header bg-success bg-opacity-10">
+        <i class="bi bi-check-circle"></i> 실행될 SQL 구문
+        <span id="query-count-badge" class="badge bg-primary ms-2"></span>
+    </div>
+    <div class="card-body">
+        <!-- 검증된 쿼리 목록 -->
+        <div id="query-preview-content" class="mb-4">
+        </div>
+
+        <!-- 구분선 -->
+        <hr>
+
+        <!-- 작업자 입력 및 실행 버튼 -->
+        <div class="row align-items-end">
+            <div class="col-md-4">
+                <label class="form-label">작업자 <span class="text-danger">*</span></label>
+                <input type="text" id="operator-input" class="form-control" placeholder="작업자명" required>
+                <small class="text-muted">쿼리 실행자 이름을 입력하세요</small>
+            </div>
+            <div class="col-md-4">
+                <button type="button" id="btn-execute" class="btn btn-success btn-lg" disabled>
+                    <i class="bi bi-play-fill"></i> 실행
+                </button>
+                <button type="button" id="btn-cancel-execution" class="btn btn-outline-secondary btn-lg ms-2">
+                    <i class="bi bi-x-lg"></i> 취소
+                </button>
+            </div>
+            <div class="col-md-4">
+                <div id="execution-warning" class="text-warning small d-none">
+                    <i class="bi bi-exclamation-triangle"></i> 위험한 쿼리가 포함되어 있습니다.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============ 섹션 4: 실행 결과 ============ -->
+<div class="card section-card section-result" id="section-result">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="bi bi-table"></i> 실행 결과</span>
         <div id="result-stats" class="text-muted small"></div>
     </div>
     <div class="card-body p-0">
-        <!-- DDL Result Tabs -->
+        <!-- 다중 서버 결과 탭 -->
+        <ul class="nav nav-tabs d-none" id="multi-server-tabs">
+        </ul>
+        <div class="tab-content" id="multi-server-tab-content">
+        </div>
+
+        <!-- 단일 서버 / DDL 결과 탭 -->
         <ul class="nav nav-tabs d-none" id="ddl-result-tabs">
             <li class="nav-item">
                 <a class="nav-link active" data-bs-toggle="tab" href="#tab-result">결과</a>
@@ -153,7 +186,7 @@
                 <a class="nav-link" data-bs-toggle="tab" href="#tab-diff">DIFF</a>
             </li>
         </ul>
-        <div class="tab-content">
+        <div class="tab-content" id="single-server-content">
             <div class="tab-pane fade show active" id="tab-result">
                 <div id="result-panel" class="result-panel">
                     <div class="text-center text-muted py-5">
@@ -200,17 +233,26 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 플레이스홀더 동작
     const placeholder = '-- SQL 쿼리를 입력하세요';
+    let userHasTyped = false;
+
+    editor.on('change', function() {
+        const val = editor.getValue();
+        if (val !== placeholder && val.trim() !== '') {
+            userHasTyped = true;
+        }
+    });
     editor.on('focus', function() {
         if (editor.getValue() === placeholder) {
             editor.setValue('');
         }
     });
     editor.on('blur', function() {
-        if (editor.getValue().trim() === '') {
+        if (editor.getValue().trim() === '' && !userHasTyped) {
             editor.setValue(placeholder);
         }
     });
 
+    // DOM 요소
     const connectionSelect = document.getElementById('connection-select');
     const databaseSelect = document.getElementById('database-select');
     const tableSelect = document.getElementById('table-select');
@@ -222,12 +264,19 @@ document.addEventListener('DOMContentLoaded', function() {
     const btnAnalyze = document.getElementById('btn-analyze');
     const btnReview = document.getElementById('btn-review');
     const btnExecute = document.getElementById('btn-execute');
+    const btnCancelExecution = document.getElementById('btn-cancel-execution');
     const resultPanel = document.getElementById('result-panel');
     const resultStats = document.getElementById('result-stats');
     const connectionStatus = document.getElementById('connection-status');
     const alterAnalysisPanel = document.getElementById('alter-analysis-panel');
-    const queryPreviewPanel = document.getElementById('query-preview-panel');
+    const sectionConfirmation = document.getElementById('section-confirmation');
+    const queryPreviewContent = document.getElementById('query-preview-content');
+    const queryCountBadge = document.getElementById('query-count-badge');
+    const executionWarning = document.getElementById('execution-warning');
     const ddlResultTabs = document.getElementById('ddl-result-tabs');
+    const multiServerTabs = document.getElementById('multi-server-tabs');
+    const multiServerTabContent = document.getElementById('multi-server-tab-content');
+    const singleServerContent = document.getElementById('single-server-content');
 
     let validatedQueries = [];
     let currentOperator = '';
@@ -292,8 +341,12 @@ document.addEventListener('DOMContentLoaded', function() {
     btnInsertTable.addEventListener('click', function() {
         const tableName = tableSelect.value;
         if (tableName) {
+            if (editor.getValue() === placeholder) {
+                editor.setValue('');
+            }
             const cursor = editor.getCursor();
             editor.replaceRange(tableName, cursor);
+            userHasTyped = true;
             editor.focus();
         }
     });
@@ -302,8 +355,12 @@ document.addEventListener('DOMContentLoaded', function() {
     btnInsertDatabase.addEventListener('click', function() {
         const dbName = databaseSelect.value;
         if (dbName) {
+            if (editor.getValue() === placeholder) {
+                editor.setValue('');
+            }
             const cursor = editor.getCursor();
             editor.replaceRange(dbName, cursor);
+            userHasTyped = true;
             editor.focus();
         }
     });
@@ -313,7 +370,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const connectionId = connectionSelect.value;
         if (!connectionId) return;
 
-        connectionStatus.innerHTML = '<span class="text-info"><i class="bi bi-hourglass-split"></i></span>';
+        connectionStatus.innerHTML = '<span class="text-info"><i class="bi bi-hourglass-split"></i> 테스트 중...</span>';
 
         fetch(`/api/connections/${connectionId}/test/`, {
             method: 'POST',
@@ -324,14 +381,32 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .then(response => response.json())
         .then(data => {
-            if (data.success) {
-                let statusHtml = `<span class="text-success"><i class="bi bi-check-circle"></i></span>`;
-                if (data.hostname) {
-                    statusHtml += `<br><small class="text-muted" title="호스트: ${data.hostname}"><i class="bi bi-server"></i> ${data.hostname}</small>`;
+            if (data.is_multi_server) {
+                // 다중 서버 결과 표시
+                let statusHtml = '';
+                if (data.success) {
+                    statusHtml = `<span class="text-success"><i class="bi bi-check-circle"></i> ${data.message}</span>`;
+                } else {
+                    statusHtml = `<span class="text-warning"><i class="bi bi-exclamation-triangle"></i> ${data.message}</span>`;
                 }
+                statusHtml += '<div class="small mt-1">';
+                data.results.forEach(r => {
+                    const icon = r.success ? 'check-circle text-success' : 'x-circle text-danger';
+                    statusHtml += `<span class="me-2"><i class="bi bi-${icon}"></i> ${r.hostname || r.host}</span>`;
+                });
+                statusHtml += '</div>';
                 connectionStatus.innerHTML = statusHtml;
             } else {
-                connectionStatus.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i></span>`;
+                // 단일 서버 결과 표시
+                if (data.success) {
+                    let statusHtml = `<span class="text-success"><i class="bi bi-check-circle"></i> 연결 성공</span>`;
+                    if (data.hostname) {
+                        statusHtml += `<br><small class="text-muted"><i class="bi bi-server"></i> ${data.hostname}</small>`;
+                    }
+                    connectionStatus.innerHTML = statusHtml;
+                } else {
+                    connectionStatus.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> 연결 실패</span>`;
+                }
             }
         });
     });
@@ -364,16 +439,15 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // ALTER 분석 결과 표시 (개선된 UI)
+    // ALTER 분석 결과 표시
     function showAlterAnalysis(data) {
-        // 복사할 쿼리 저장 (전역)
         window.alterAnalysisCopyData = data.copyable_queries || [];
 
         let html = `
-            <p><strong>테이블:</strong> <code>${data.table_name}</code></p>
-            <p><strong>작업:</strong> ${data.operation}</p>
-            <p><strong>예상 영향:</strong> ${data.estimated_impact}</p>
-            <h6 class="mt-3">최적화 옵션:</h6>
+            <div class="mb-3">
+                <span class="badge bg-secondary me-2">${data.table_name}</span>
+                <span class="badge bg-info">${data.operation}</span>
+            </div>
             <div class="list-group">
         `;
 
@@ -384,18 +458,15 @@ document.addEventListener('DOMContentLoaded', function() {
                               suggestion.impact === '중간' ? 'warning' : 'danger';
 
             html += `
-                <div class="list-group-item">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div class="d-flex align-items-center">
-                            <code class="me-2 user-select-all">${combinedOption}</code>
-                            <button type="button" class="btn btn-sm btn-outline-secondary copy-query-btn"
-                                    data-copy-index="${idx}" title="쿼리 복사">
-                                <i class="bi bi-clipboard"></i>
-                            </button>
-                        </div>
-                        <span class="badge bg-${badgeClass}">${suggestion.impact}</span>
+                <div class="list-group-item d-flex justify-content-between align-items-center py-2">
+                    <div class="d-flex align-items-center">
+                        <code class="me-2 user-select-all">${combinedOption}</code>
+                        <button type="button" class="btn btn-sm btn-outline-primary copy-query-btn"
+                                data-copy-index="${idx}" title="쿼리 복사">
+                            <i class="bi bi-clipboard"></i> 복사
+                        </button>
                     </div>
-                    <p class="mb-0 mt-1 text-muted small">${suggestion.description}</p>
+                    <span class="badge bg-${badgeClass}">${suggestion.impact}</span>
                 </div>
             `;
         });
@@ -421,7 +492,6 @@ document.addEventListener('DOMContentLoaded', function() {
     btnReview.addEventListener('click', function() {
         const connectionId = connectionSelect.value;
         const query = editor.getValue().trim();
-        const operator = operatorInput.value.trim();
 
         if (!connectionId) {
             alert('연결을 선택해주세요.');
@@ -433,13 +503,6 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        if (!operator) {
-            alert('작업자를 입력해주세요.');
-            operatorInput.focus();
-            return;
-        }
-
-        // DDL 분석 패널 자동 닫기
         alterAnalysisPanel.classList.add('d-none');
 
         btnReview.disabled = true;
@@ -454,7 +517,7 @@ document.addEventListener('DOMContentLoaded', function() {
             body: JSON.stringify({
                 connection_id: connectionId,
                 query: query,
-                operator: operator
+                operator: operatorInput.value.trim() || 'pending'  // 임시값
             })
         })
         .then(response => response.json())
@@ -475,10 +538,9 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // 검수 결과 표시
+    // 검수 결과 표시 - 섹션 3 활성화
     function showReviewResult(data) {
         validatedQueries = data.validation_results.map(r => r.full_query);
-        currentOperator = data.operator;
 
         let html = '';
         data.validation_results.forEach((result, idx) => {
@@ -501,31 +563,48 @@ document.addEventListener('DOMContentLoaded', function() {
             `;
         });
 
-        document.getElementById('query-preview-content').innerHTML = html;
-        document.getElementById('query-count-badge').textContent = `${data.query_count}개 쿼리`;
-        queryPreviewPanel.classList.remove('d-none');
+        queryPreviewContent.innerHTML = html;
+        queryCountBadge.textContent = `${data.query_count}개 쿼리`;
 
-        if (data.all_valid) {
-            btnExecute.disabled = false;
-            btnExecute.classList.remove('btn-secondary');
-            btnExecute.classList.add('btn-primary');
-        } else {
-            btnExecute.disabled = true;
-        }
+        // 섹션 3 표시
+        sectionConfirmation.classList.remove('d-none');
 
+        // 작업자 입력 시 실행 버튼 활성화
+        updateExecuteButtonState(data.all_valid);
+
+        // 위험한 쿼리 경고
         if (data.has_dangerous) {
-            if (!confirm('위험한 쿼리가 포함되어 있습니다. 계속하시겠습니까?')) {
-                resetExecuteState();
-            }
+            executionWarning.classList.remove('d-none');
+        } else {
+            executionWarning.classList.add('d-none');
         }
+
+        // 섹션 3으로 스크롤
+        sectionConfirmation.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
+
+    // 작업자 입력 시 실행 버튼 상태 업데이트
+    operatorInput.addEventListener('input', function() {
+        updateExecuteButtonState(validatedQueries.length > 0);
+    });
+
+    function updateExecuteButtonState(allValid) {
+        const hasOperator = operatorInput.value.trim().length > 0;
+        btnExecute.disabled = !(allValid && hasOperator);
+    }
+
+    // 실행 취소
+    btnCancelExecution.addEventListener('click', function() {
+        resetExecuteState();
+    });
 
     // 실행 상태 초기화
     function resetExecuteState() {
         validatedQueries = [];
         currentOperator = '';
         btnExecute.disabled = true;
-        queryPreviewPanel.classList.add('d-none');
+        sectionConfirmation.classList.add('d-none');
+        executionWarning.classList.add('d-none');
     }
 
     // 쿼리 실행
@@ -535,7 +614,14 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        // DDL 분석 패널 자동 닫기
+        const operator = operatorInput.value.trim();
+        if (!operator) {
+            alert('작업자를 입력해주세요.');
+            operatorInput.focus();
+            return;
+        }
+
+        currentOperator = operator;
         alterAnalysisPanel.classList.add('d-none');
 
         btnExecute.disabled = true;
@@ -566,6 +652,9 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             resetExecuteState();
+
+            // 결과 섹션으로 스크롤
+            document.getElementById('section-result').scrollIntoView({ behavior: 'smooth', block: 'start' });
         })
         .catch(error => {
             btnExecute.disabled = false;
@@ -579,6 +668,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 배치 실행 결과 표시
     function showBatchResult(data) {
+        // 다중 서버 결과 처리
+        if (data.is_multi_server && data.results) {
+            showMultiServerResult(data);
+            return;
+        }
+
+        // 단일 서버 결과 표시
+        multiServerTabs.classList.add('d-none');
+        multiServerTabContent.innerHTML = '';
+        singleServerContent.style.display = 'block';
+
         resultStats.innerHTML = `
             <span class="text-success"><i class="bi bi-check-circle"></i> 성공</span>
             <span class="ms-3">총 ${data.total}개 쿼리</span>
@@ -592,13 +692,26 @@ document.addEventListener('DOMContentLoaded', function() {
 
         data.results.forEach((result, idx) => {
             const statusClass = result.success ? 'success' : 'danger';
-            html += `
-                <div class="alert alert-${statusClass} py-2">
-                    <strong>#${idx + 1}</strong> ${result.query_type} -
-                    영향받은 행: ${result.affected_rows},
-                    실행 시간: ${result.execution_time.toFixed(3)}초
-                </div>
-            `;
+
+            // SELECT 쿼리인 경우 결과 테이블 표시
+            if (result.query_type === 'SELECT' && result.data && result.data.length > 0) {
+                html += `
+                    <div class="alert alert-${statusClass} py-2">
+                        <strong>#${idx + 1}</strong> ${result.query_type} -
+                        ${result.data.length}행 조회,
+                        실행 시간: ${result.execution_time.toFixed(3)}초
+                    </div>
+                `;
+                html += renderDataTable(result.data, result.columns);
+            } else {
+                html += `
+                    <div class="alert alert-${statusClass} py-2">
+                        <strong>#${idx + 1}</strong> ${result.query_type} -
+                        영향받은 행: ${result.affected_rows},
+                        실행 시간: ${result.execution_time.toFixed(3)}초
+                    </div>
+                `;
+            }
 
             if (result.query_type === 'DDL' && (result.schema_before || result.schema_after)) {
                 hasDDL = true;
@@ -609,10 +722,143 @@ document.addEventListener('DOMContentLoaded', function() {
         html += '</div>';
         resultPanel.innerHTML = html;
 
-        // DDL 결과가 있으면 탭 표시
         if (hasDDL && lastDDLResult) {
             showDDLDiff(lastDDLResult.schema_before, lastDDLResult.schema_after);
         }
+    }
+
+    // 다중 서버 결과 표시
+    function showMultiServerResult(data) {
+        // 단일 서버 결과 영역 숨기기
+        singleServerContent.style.display = 'none';
+        ddlResultTabs.classList.add('d-none');
+
+        // 결과 통계
+        resultStats.innerHTML = `
+            <span class="${data.failed_hosts === 0 ? 'text-success' : 'text-warning'}">
+                <i class="bi bi-${data.failed_hosts === 0 ? 'check-circle' : 'exclamation-triangle'}"></i>
+                ${data.successful_hosts}/${data.total_hosts} 서버 성공
+            </span>
+        `;
+
+        // 탭 생성
+        let tabsHtml = '';
+        let contentHtml = '';
+
+        data.results.forEach((serverResult, idx) => {
+            const isActive = idx === 0 ? 'active' : '';
+            const statusIcon = serverResult.success ? 'check-circle text-success' : 'x-circle text-danger';
+            const serverName = serverResult.hostname || serverResult.host;
+
+            tabsHtml += `
+                <li class="nav-item">
+                    <a class="nav-link ${isActive}" data-bs-toggle="tab" href="#server-tab-${idx}">
+                        <i class="bi bi-${statusIcon}"></i>
+                        ${serverName}
+                    </a>
+                </li>
+            `;
+
+            contentHtml += `
+                <div class="tab-pane fade ${idx === 0 ? 'show active' : ''}" id="server-tab-${idx}">
+                    <div class="p-3">
+                        ${renderServerResult(serverResult)}
+                    </div>
+                </div>
+            `;
+        });
+
+        multiServerTabs.innerHTML = tabsHtml;
+        multiServerTabContent.innerHTML = contentHtml;
+        multiServerTabs.classList.remove('d-none');
+    }
+
+    // 개별 서버 결과 렌더링
+    function renderServerResult(serverResult) {
+        let html = '';
+
+        if (serverResult.success) {
+            const statusClass = 'success';
+
+            // SELECT 쿼리인 경우 결과 테이블 표시
+            if (serverResult.query_type === 'SELECT' && serverResult.data && serverResult.data.length > 0) {
+                html += `
+                    <div class="alert alert-${statusClass} py-2">
+                        <i class="bi bi-check-circle"></i> ${serverResult.query_type} -
+                        ${serverResult.data.length}행 조회,
+                        실행 시간: ${serverResult.execution_time.toFixed(3)}초
+                    </div>
+                `;
+                html += renderDataTable(serverResult.data, serverResult.columns);
+            } else {
+                html += `
+                    <div class="alert alert-${statusClass} py-2">
+                        <i class="bi bi-check-circle"></i> ${serverResult.query_type} -
+                        영향받은 행: ${serverResult.affected_rows},
+                        실행 시간: ${serverResult.execution_time.toFixed(3)}초
+                    </div>
+                `;
+            }
+
+            // DDL 스키마 비교
+            if (serverResult.query_type === 'DDL' && (serverResult.schema_before || serverResult.schema_after)) {
+                html += `
+                    <div class="mt-3">
+                        <ul class="nav nav-tabs" id="ddl-tabs-${serverResult.host}">
+                            <li class="nav-item">
+                                <a class="nav-link active" data-bs-toggle="tab" href="#before-${serverResult.host}">BEFORE</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" data-bs-toggle="tab" href="#after-${serverResult.host}">AFTER</a>
+                            </li>
+                        </ul>
+                        <div class="tab-content border border-top-0 p-2">
+                            <div class="tab-pane fade show active" id="before-${serverResult.host}">
+                                <pre class="bg-light p-2 m-0 small" style="max-height: 200px; overflow: auto;">${serverResult.schema_before || '(없음)'}</pre>
+                            </div>
+                            <div class="tab-pane fade" id="after-${serverResult.host}">
+                                <pre class="bg-light p-2 m-0 small" style="max-height: 200px; overflow: auto;">${serverResult.schema_after || '(없음)'}</pre>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        } else {
+            html += `
+                <div class="alert alert-danger">
+                    <i class="bi bi-x-circle"></i> <strong>실패:</strong> ${serverResult.error}
+                </div>
+            `;
+        }
+
+        return html;
+    }
+
+    // SELECT 결과 테이블 렌더링
+    function renderDataTable(data, columns) {
+        if (!data || data.length === 0) return '';
+
+        const cols = columns || Object.keys(data[0]);
+
+        let html = '<div class="table-responsive mb-3" style="max-height: 300px; overflow: auto;">';
+        html += '<table class="table table-sm table-bordered table-striped">';
+        html += '<thead class="table-dark"><tr>';
+        cols.forEach(col => {
+            html += `<th>${col}</th>`;
+        });
+        html += '</tr></thead><tbody>';
+
+        data.forEach(row => {
+            html += '<tr>';
+            cols.forEach(col => {
+                const val = row[col];
+                html += `<td>${val !== null && val !== undefined ? val : '<span class="text-muted">NULL</span>'}</td>`;
+            });
+            html += '</tr>';
+        });
+
+        html += '</tbody></table></div>';
+        return html;
     }
 
     // 배치 실행 오류 표시
@@ -652,7 +898,6 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('schema-before').textContent = before || '(없음)';
         document.getElementById('schema-after').textContent = after || '(없음)';
 
-        // 간단한 diff 표시
         const diffDiv = document.getElementById('schema-diff');
         if (before && after) {
             const beforeLines = before.split('\n');
@@ -707,11 +952,9 @@ document.addEventListener('DOMContentLoaded', function() {
 // 클립보드 복사 함수
 function copyToClipboard(text) {
     navigator.clipboard.writeText(text).then(() => {
-        // 토스트 메시지 표시
         showToast('복사되었습니다');
     }).catch(err => {
         console.error('복사 실패:', err);
-        // 폴백: 텍스트 선택 방식
         const textArea = document.createElement('textarea');
         textArea.value = text;
         textArea.style.position = 'fixed';
@@ -730,7 +973,6 @@ function copyToClipboard(text) {
 
 // 토스트 메시지 표시 함수
 function showToast(message, type = 'success') {
-    // 토스트 컨테이너가 없으면 생성
     let toastContainer = document.getElementById('toastContainer');
     if (!toastContainer) {
         toastContainer = document.createElement('div');

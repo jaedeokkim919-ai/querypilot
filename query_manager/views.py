@@ -3,6 +3,9 @@ QueryPilot 뷰
 """
 
 import json
+import uuid
+import time
+import threading
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
@@ -12,6 +15,9 @@ from django.contrib import messages
 from django.db.models import Count, Q
 from django.utils import timezone
 from datetime import timedelta
+
+# 배치 실행 진행 상황 저장 (메모리 기반 - 프로덕션에서는 Redis 등 사용 권장)
+batch_progress_store = {}
 
 from .models import DatabaseConnection, QueryExecution, SchemaVersion, SchemaVersionTag
 from .forms import (
@@ -172,6 +178,7 @@ class QueryExecuteView(View):
             connection_id = data.get('connection_id')
             query = data.get('query', '').strip()
             operator = data.get('operator', '').strip()
+            database = data.get('database', '').strip()
 
             # 작업자(operator)를 executed_by로 사용
             executed_by = operator if operator else (
@@ -192,8 +199,17 @@ class QueryExecuteView(View):
             if query.strip().upper().startswith('ALTER'):
                 alter_analysis = service.analyze_alter_statement(query)
 
-            result = service.execute_query(query, executed_by)
-            result['alter_analysis'] = alter_analysis
+            # 다중 서버 지원: 호스트가 여러 개인 경우
+            if connection.is_multi_server():
+                result = service.execute_query_multi_server(query, database, executed_by)
+                result['is_multi_server'] = True
+                result['alter_analysis'] = alter_analysis
+                # 전체 성공 여부
+                result['success'] = result['failed_hosts'] == 0
+            else:
+                result = service.execute_query(query, executed_by)
+                result['is_multi_server'] = False
+                result['alter_analysis'] = alter_analysis
 
             return JsonResponse(result)
 
@@ -336,7 +352,18 @@ class ApiConnectionTestView(View):
     def post(self, request, pk):
         connection = get_object_or_404(DatabaseConnection, pk=pk)
         service = QueryService(connection)
-        result = service.test_connection()
+
+        # 다중 서버 지원
+        if connection.is_multi_server():
+            result = service.test_connection_multi_server()
+            result['is_multi_server'] = True
+            # 전체 성공 여부
+            result['success'] = result['failed_hosts'] == 0
+            result['message'] = f"{result['successful_hosts']}/{result['total_hosts']} 서버 연결 성공"
+        else:
+            result = service.test_connection()
+            result['is_multi_server'] = False
+
         return JsonResponse(result)
 
 
@@ -716,3 +743,153 @@ class HistorySchemaCompareView(View):
             'executed_at': execution.executed_at.strftime('%Y-%m-%d %H:%M:%S'),
             'operator': getattr(execution, 'operator', '')
         })
+
+
+# ============ Batch Execution Views ============
+class BatchExecutionPageView(View):
+    """배치 실행 페이지 뷰"""
+
+    def get(self, request):
+        connections = DatabaseConnection.objects.filter(is_active=True)
+        context = {
+            'connections': connections,
+        }
+        return render(request, 'query_manager/batch_execution.html', context)
+
+
+class BatchExecutionApiView(View):
+    """배치 실행 API"""
+
+    def post(self, request):
+        try:
+            data = json.loads(request.body)
+            connection_id = data.get('connection_id')
+            query_text = data.get('query', '').strip()
+            batch_size = int(data.get('batch_size', 10))
+            sleep_time = float(data.get('sleep_time', 0))
+            operator = data.get('operator', '').strip()
+
+            # 입력 검증
+            if not connection_id:
+                return JsonResponse({'success': False, 'error': '연결을 선택해주세요.'})
+            if not query_text:
+                return JsonResponse({'success': False, 'error': '쿼리를 입력해주세요.'})
+            if not operator:
+                return JsonResponse({'success': False, 'error': '작업자를 입력해주세요.'})
+
+            connection = get_object_or_404(DatabaseConnection, pk=connection_id)
+            service = QueryService(connection)
+
+            # 쿼리 분리
+            queries = service.split_queries(query_text)
+            total_queries = len(queries)
+
+            if total_queries == 0:
+                return JsonResponse({'success': False, 'error': '실행할 쿼리가 없습니다.'})
+
+            # 배치 ID 생성
+            batch_id = str(uuid.uuid4())[:8]
+
+            # 진행 상황 초기화
+            batch_progress_store[batch_id] = {
+                'status': 'running',
+                'total': total_queries,
+                'completed': 0,
+                'current_batch': 0,
+                'total_batches': (total_queries + batch_size - 1) // batch_size,
+                'results': [],
+                'stopped': False,
+                'error': None
+            }
+
+            # 배치 실행 (동기 방식 - 간단 구현)
+            results = []
+            completed = 0
+            total_affected = 0
+
+            for i in range(0, total_queries, batch_size):
+                # 중지 확인
+                if batch_progress_store.get(batch_id, {}).get('stopped'):
+                    batch_progress_store[batch_id]['status'] = 'stopped'
+                    break
+
+                batch = queries[i:i + batch_size]
+                current_batch_num = i // batch_size + 1
+
+                # 진행 상황 업데이트
+                batch_progress_store[batch_id]['current_batch'] = current_batch_num
+
+                # 배치 실행
+                batch_result = service.execute_batch(batch, operator)
+
+                # 결과 집계
+                batch_info = {
+                    'batch_num': current_batch_num,
+                    'success': batch_result.get('success', False),
+                    'query_count': len(batch),
+                    'successful': batch_result.get('successful', 0),
+                    'affected_rows': sum(r.get('affected_rows', 0) for r in batch_result.get('results', [])),
+                    'error': batch_result.get('error')
+                }
+                results.append(batch_info)
+                total_affected += batch_info['affected_rows']
+
+                completed += len(batch)
+                batch_progress_store[batch_id]['completed'] = completed
+                batch_progress_store[batch_id]['results'] = results
+
+                # 배치 간 대기
+                if sleep_time > 0 and i + batch_size < total_queries:
+                    time.sleep(sleep_time)
+
+            # 완료 상태 업데이트
+            final_status = 'stopped' if batch_progress_store.get(batch_id, {}).get('stopped') else 'completed'
+            batch_progress_store[batch_id]['status'] = final_status
+
+            return JsonResponse({
+                'success': True,
+                'batch_id': batch_id,
+                'total_queries': total_queries,
+                'completed': completed,
+                'total_batches': batch_progress_store[batch_id]['total_batches'],
+                'total_affected_rows': total_affected,
+                'results': results,
+                'status': final_status
+            })
+
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)})
+
+
+class BatchExecutionProgressView(View):
+    """배치 실행 진행 상황 조회 API"""
+
+    def get(self, request, batch_id):
+        progress = batch_progress_store.get(batch_id)
+
+        if not progress:
+            return JsonResponse({'error': '배치를 찾을 수 없습니다.'}, status=404)
+
+        percent = (progress['completed'] / progress['total'] * 100) if progress['total'] > 0 else 0
+
+        return JsonResponse({
+            'status': progress['status'],
+            'total': progress['total'],
+            'completed': progress['completed'],
+            'progress': round(percent, 1),
+            'current_batch': progress['current_batch'],
+            'total_batches': progress['total_batches'],
+            'stopped': progress['stopped'],
+            'results': progress['results']
+        })
+
+
+class BatchExecutionStopView(View):
+    """배치 실행 중지 API"""
+
+    def post(self, request, batch_id):
+        if batch_id in batch_progress_store:
+            batch_progress_store[batch_id]['stopped'] = True
+            return JsonResponse({'success': True, 'message': '중지 요청됨'})
+
+        return JsonResponse({'success': False, 'error': '배치를 찾을 수 없습니다.'}, status=404)

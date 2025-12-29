@@ -79,13 +79,18 @@
                 </a>
             </li>
             <li class="nav-item">
-                <a href="{% url 'query_manager:query_editor' %}" class="nav-link {% if 'query' in request.resolver_match.url_name %}active{% endif %}">
+                <a href="{% url 'query_manager:connection_list' %}" class="nav-link {% if 'connection' in request.resolver_match.url_name %}active{% endif %}">
+                    <i class="bi bi-plug"></i> DB 연결
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="{% url 'query_manager:query_editor' %}" class="nav-link {% if 'query' in request.resolver_match.url_name and 'batch' not in request.resolver_match.url_name %}active{% endif %}">
                     <i class="bi bi-code-square"></i> 쿼리 에디터
                 </a>
             </li>
             <li class="nav-item">
-                <a href="{% url 'query_manager:connection_list' %}" class="nav-link {% if 'connection' in request.resolver_match.url_name %}active{% endif %}">
-                    <i class="bi bi-plug"></i> DB 연결
+                <a href="{% url 'query_manager:batch_execution' %}" class="nav-link {% if 'batch' in request.resolver_match.url_name %}active{% endif %}">
+                    <i class="bi bi-collection"></i> 배치 실행
                 </a>
             </li>
             <li class="nav-item">

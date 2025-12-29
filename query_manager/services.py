@@ -1328,3 +1328,341 @@ class QueryService:
         except pymysql.Error as e:
             logger.error(f"Failed to get tables for {database}: {e}")
         return tables
+
+    # ============================================
+    # 다중 서버 지원 메서드
+    # ============================================
+
+    def _get_db_connection_for_host(self, host: str, database: str = None):
+        """특정 호스트에 대한 PyMySQL 연결 생성"""
+        connect_params = {
+            'host': host,
+            'port': self.connection.port,
+            'user': self.connection.username,
+            'password': self.connection.password,
+            'charset': 'utf8mb4',
+            'connect_timeout': 10,
+            'read_timeout': self.timeout,
+            'write_timeout': self.timeout,
+            'cursorclass': DictCursor,
+        }
+
+        # 데이터베이스 지정
+        db_name = database or self.connection.database
+        if db_name:
+            connect_params['database'] = db_name
+
+        return pymysql.connect(**connect_params)
+
+    def test_connection_multi_server(self) -> dict:
+        """다중 서버 연결 테스트"""
+        hosts = self.connection.get_hosts_list()
+        results = {
+            'total_hosts': len(hosts),
+            'successful_hosts': 0,
+            'failed_hosts': 0,
+            'results': []
+        }
+
+        for host in hosts:
+            host_result = {
+                'host': host,
+                'success': False,
+                'message': '',
+                'server_info': None,
+                'hostname': '',
+            }
+
+            try:
+                conn = self._get_db_connection_for_host(host)
+                try:
+                    with conn.cursor() as cursor:
+                        # 서버 정보 조회
+                        cursor.execute("SELECT VERSION() as version")
+                        row = cursor.fetchone()
+                        host_result['server_info'] = {
+                            'version': row['version'] if row else 'Unknown'
+                        }
+
+                        # 호스트명 조회
+                        try:
+                            cursor.execute("SELECT @@hostname as hostname")
+                            hostname_row = cursor.fetchone()
+                            host_result['hostname'] = hostname_row['hostname'] if hostname_row else ''
+                        except pymysql.Error:
+                            host_result['hostname'] = ''
+
+                    host_result['success'] = True
+                    host_result['message'] = '연결 성공'
+                    results['successful_hosts'] += 1
+                finally:
+                    conn.close()
+            except pymysql.Error as e:
+                host_result['message'] = f'연결 실패: {e}'
+                results['failed_hosts'] += 1
+                logger.error(f"Connection test failed for {host}: {e}")
+
+            results['results'].append(host_result)
+
+        return results
+
+    def execute_query_multi_server(self, query: str, database: str, executed_by: str = '') -> dict:
+        """
+        다중 서버에서 순차 실행
+
+        Returns:
+            dict: {
+                'total_hosts': int,
+                'successful_hosts': int,
+                'failed_hosts': int,
+                'results': list[dict]  # 각 서버별 결과
+            }
+        """
+        hosts = self.connection.get_hosts_list()
+        results = {
+            'total_hosts': len(hosts),
+            'successful_hosts': 0,
+            'failed_hosts': 0,
+            'results': []
+        }
+
+        query = query.strip()
+        if not query:
+            return {'error': '쿼리가 비어있습니다.', **results}
+
+        query_type = QueryExecution.detect_query_type(query)
+
+        # DDL인 경우 테이블명 추출
+        table_name = None
+        if query_type == 'DDL':
+            table_name = self._extract_table_name(query)
+
+        for host in hosts:
+            start_time = time.time()
+            host_result = {
+                'host': host,
+                'hostname': '',
+                'success': False,
+                'query_type': query_type,
+                'affected_rows': 0,
+                'execution_time': 0,
+                'columns': [],
+                'data': [],
+                'error': '',
+                'execution_id': None,
+                'schema_before': '',
+                'schema_after': '',
+            }
+
+            try:
+                conn = self._get_db_connection_for_host(host, database)
+                try:
+                    with conn.cursor() as cursor:
+                        # 호스트명 조회
+                        try:
+                            cursor.execute("SELECT @@hostname as hostname")
+                            hostname_row = cursor.fetchone()
+                            host_result['hostname'] = hostname_row['hostname'] if hostname_row else host
+                        except pymysql.Error:
+                            host_result['hostname'] = host
+
+                        # DDL 실행 전 스키마 조회
+                        if query_type == 'DDL' and table_name:
+                            host_result['schema_before'] = self._get_table_schema_with_cursor(table_name, cursor)
+
+                        cursor.execute(query)
+
+                        if query_type == 'SELECT':
+                            rows = cursor.fetchmany(self.max_rows)
+                            host_result['data'] = rows
+                            host_result['columns'] = [desc[0] for desc in cursor.description] if cursor.description else []
+                            host_result['affected_rows'] = len(rows)
+                        else:
+                            host_result['affected_rows'] = cursor.rowcount
+                            conn.commit()
+
+                        # DDL 실행 후 스키마 조회
+                        if query_type == 'DDL' and table_name:
+                            host_result['schema_after'] = self._get_table_schema_with_cursor(table_name, cursor)
+
+                    host_result['success'] = True
+                    results['successful_hosts'] += 1
+
+                finally:
+                    conn.close()
+
+            except pymysql.Error as e:
+                host_result['error'] = str(e)
+                results['failed_hosts'] += 1
+                logger.error(f"Query execution failed on {host}: {e}")
+                # 실패해도 다음 서버로 계속 진행 (사용자 결정에 따름)
+
+            host_result['execution_time'] = time.time() - start_time
+
+            # 실행 이력 저장
+            execution = QueryExecution.objects.create(
+                connection=self.connection,
+                query_text=f"[{host}] {query}",
+                query_type=query_type,
+                executed_by=executed_by,
+                operator=executed_by,
+                status='SUCCESS' if host_result['success'] else 'FAILED',
+                affected_rows=host_result['affected_rows'],
+                execution_time=host_result['execution_time'],
+                error_message=host_result['error'],
+                schema_before=host_result.get('schema_before', ''),
+                schema_after=host_result.get('schema_after', ''),
+                result_columns=host_result['columns'] if query_type == 'SELECT' else None,
+                result_data=host_result['data'][:100] if query_type == 'SELECT' else None,
+            )
+            host_result['execution_id'] = execution.id
+
+            results['results'].append(host_result)
+
+        return results
+
+    def _get_table_schema_with_cursor(self, table_name: str, cursor) -> str:
+        """커서를 사용하여 테이블 스키마 조회"""
+        if '.' in table_name:
+            parts = table_name.split('.', 1)
+            escaped_name = f"`{parts[0]}`.`{parts[1]}`"
+        else:
+            escaped_name = f"`{table_name}`"
+
+        try:
+            cursor.execute(f"SHOW CREATE TABLE {escaped_name}")
+            row = cursor.fetchone()
+            if row:
+                return row.get('Create Table', '')
+        except pymysql.Error as e:
+            logger.warning(f"Failed to get schema for {table_name}: {e}")
+        return ''
+
+    def execute_batch_multi_server(self, queries: list, database: str, operator: str) -> dict:
+        """
+        다중 서버에서 배치 쿼리 순차 실행
+
+        Returns:
+            dict: {
+                'batch_id': str,
+                'total_hosts': int,
+                'successful_hosts': int,
+                'failed_hosts': int,
+                'host_results': list[dict]
+            }
+        """
+        batch_id = str(uuid.uuid4())[:8]
+        hosts = self.connection.get_hosts_list()
+
+        result = {
+            'batch_id': batch_id,
+            'total_hosts': len(hosts),
+            'successful_hosts': 0,
+            'failed_hosts': 0,
+            'host_results': []
+        }
+
+        if not queries:
+            result['error'] = '실행할 쿼리가 없습니다.'
+            return result
+
+        if not operator:
+            result['error'] = '작업자를 입력해주세요.'
+            return result
+
+        for host in hosts:
+            host_result = {
+                'host': host,
+                'hostname': '',
+                'success': False,
+                'total': len(queries),
+                'successful': 0,
+                'failed': 0,
+                'results': [],
+                'error': ''
+            }
+
+            try:
+                conn = self._get_db_connection_for_host(host, database)
+                conn.autocommit(False)
+
+                try:
+                    with conn.cursor() as cursor:
+                        # 호스트명 조회
+                        try:
+                            cursor.execute("SELECT @@hostname as hostname")
+                            hostname_row = cursor.fetchone()
+                            host_result['hostname'] = hostname_row['hostname'] if hostname_row else host
+                        except pymysql.Error:
+                            host_result['hostname'] = host
+
+                    query_results = []
+
+                    for idx, query in enumerate(queries):
+                        query = query.strip()
+                        if not query:
+                            continue
+
+                        query_type = QueryExecution.detect_query_type(query)
+                        start_time = time.time()
+
+                        query_result = {
+                            'index': idx,
+                            'query': query[:100] + '...' if len(query) > 100 else query,
+                            'query_type': query_type,
+                            'success': False,
+                            'affected_rows': 0,
+                            'execution_time': 0,
+                            'error': ''
+                        }
+
+                        try:
+                            with conn.cursor() as cursor:
+                                cursor.execute(query)
+
+                                if query_type == 'SELECT':
+                                    rows = cursor.fetchmany(self.max_rows)
+                                    query_result['affected_rows'] = len(rows)
+                                else:
+                                    query_result['affected_rows'] = cursor.rowcount
+
+                            query_result['success'] = True
+                            query_result['execution_time'] = time.time() - start_time
+
+                        except pymysql.Error as e:
+                            query_result['error'] = str(e)
+                            query_result['execution_time'] = time.time() - start_time
+                            query_results.append(query_result)
+
+                            # 트랜잭션 롤백
+                            conn.rollback()
+                            host_result['results'] = query_results
+                            host_result['failed'] = 1
+                            host_result['successful'] = idx
+                            host_result['error'] = f'쿼리 {idx+1} 실행 실패로 롤백: {e}'
+                            results['failed_hosts'] += 1
+
+                            # 이 호스트는 실패, 다음 호스트로 이동
+                            break
+
+                        query_results.append(query_result)
+
+                    else:
+                        # 모든 쿼리 성공 - 커밋
+                        conn.commit()
+                        host_result['success'] = True
+                        host_result['successful'] = len(query_results)
+                        host_result['results'] = query_results
+                        result['successful_hosts'] += 1
+
+                finally:
+                    conn.close()
+
+            except pymysql.Error as e:
+                host_result['error'] = f'연결 오류: {e}'
+                result['failed_hosts'] += 1
+                logger.error(f"Batch execution connection error for {host}: {e}")
+
+            result['host_results'].append(host_result)
+
+        return result

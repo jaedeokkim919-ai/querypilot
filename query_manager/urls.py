@@ -21,6 +21,12 @@ urlpatterns = [
     path('query/review/', views.QueryReviewView.as_view(), name='query_review'),
     path('query/batch-execute/', views.QueryBatchExecuteView.as_view(), name='query_batch_execute'),
 
+    # Batch Execution
+    path('batch/', views.BatchExecutionPageView.as_view(), name='batch_execution'),
+    path('batch/execute/', views.BatchExecutionApiView.as_view(), name='batch_execution_api'),
+    path('batch/progress/<str:batch_id>/', views.BatchExecutionProgressView.as_view(), name='batch_progress'),
+    path('batch/stop/<str:batch_id>/', views.BatchExecutionStopView.as_view(), name='batch_stop'),
+
     # History
     path('history/', views.HistoryListView.as_view(), name='history_list'),
     path('history/<int:pk>/', views.HistoryDetailView.as_view(), name='history_detail'),
