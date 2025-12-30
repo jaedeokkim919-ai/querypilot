@@ -961,8 +961,13 @@ class QueryService:
                             if query_type == 'SELECT':
                                 rows = cursor.fetchmany(self.max_rows)
                                 query_result['affected_rows'] = len(rows)
-                                query_result['columns'] = [desc[0] for desc in cursor.description] if cursor.description else []
-                                query_result['data'] = rows
+                                columns = [desc[0] for desc in cursor.description] if cursor.description else []
+                                query_result['columns'] = columns
+                                # rows를 딕셔너리 형태로 변환
+                                query_result['data'] = [
+                                    {columns[i]: row[i] for i in range(len(columns))}
+                                    for row in rows
+                                ]
                             else:
                                 query_result['affected_rows'] = cursor.rowcount
 

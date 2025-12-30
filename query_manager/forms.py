@@ -33,6 +33,17 @@ class DatabaseConnectionForm(forms.ModelForm):
             'hosts': '다중 서버 지원: 여러 호스트를 줄바꿈으로 구분하여 입력. 비워두면 위의 호스트만 사용됩니다.',
         }
 
+    def clean(self):
+        cleaned_data = super().clean()
+        host = cleaned_data.get('host', '').strip()
+        hosts = cleaned_data.get('hosts', '').strip()
+
+        # 단일 호스트나 다중 호스트 중 하나는 반드시 입력되어야 함
+        if not host and not hosts:
+            raise forms.ValidationError('호스트 또는 다중 호스트 중 하나를 입력해주세요.')
+
+        return cleaned_data
+
 
 class DatabaseConnectionEditForm(DatabaseConnectionForm):
     """데이터베이스 연결 수정 폼 (비밀번호 선택적)"""

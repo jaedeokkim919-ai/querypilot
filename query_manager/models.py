@@ -4,7 +4,7 @@ from django.db import models
 class DatabaseConnection(models.Model):
     """데이터베이스 연결 정보 모델"""
     name = models.CharField(max_length=100, unique=True, verbose_name='연결 이름')
-    host = models.CharField(max_length=255, verbose_name='호스트')
+    host = models.CharField(max_length=255, blank=True, default='', verbose_name='호스트')
     port = models.IntegerField(default=3306, verbose_name='포트')
     database = models.CharField(max_length=100, blank=True, default='', verbose_name='데이터베이스명')
     username = models.CharField(max_length=100, verbose_name='사용자명')

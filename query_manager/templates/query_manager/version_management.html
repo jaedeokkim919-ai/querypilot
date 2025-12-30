@@ -1,31 +1,37 @@
 {% extends 'query_manager/base.html' %}
 
-{% block title %}버전 관리 - QueryPilot{% endblock %}
+{% block title %}스키마 버전 관리 - QueryPilot{% endblock %}
 
 {% block content %}
 <div class="row mb-4">
     <div class="col">
-        <h2><i class="bi bi-git"></i> 스키마 버전 관리</h2>
+        <h2><i class="bi bi-diagram-3"></i> 스키마 버전 관리</h2>
         <p class="text-muted">테이블별 스키마 변경 이력을 관리하고 버전을 비교합니다.</p>
     </div>
 </div>
 
-<!-- Connection & Table Selection -->
+<!-- Database & Table Selection -->
 <div class="row mb-4">
     <div class="col-md-4">
         <div class="card">
             <div class="card-header">
-                <i class="bi bi-plug"></i> 연결 선택
+                <i class="bi bi-database"></i> 데이터베이스 선택
             </div>
             <div class="card-body">
-                <select id="connectionSelect" class="form-select">
-                    <option value="">연결을 선택하세요...</option>
-                    {% for conn in connections %}
-                        <option value="{{ conn.pk }}" {% if selected_connection == conn.pk %}selected{% endif %}>
-                            {{ conn.name }} ({{ conn.host }}{% if conn.database %}:{{ conn.database }}{% endif %})
+                <select id="databaseSelect" class="form-select">
+                    <option value="">데이터베이스를 선택하세요...</option>
+                    {% for db in databases %}
+                        <option value="{{ db.connection__database }}">
+                            {{ db.connection__database }}
+                            <span class="text-muted">({{ db.table_count }}개 테이블, {{ db.version_count }}개 버전)</span>
                         </option>
                     {% endfor %}
                 </select>
+                {% if not databases %}
+                <div class="text-muted small mt-2">
+                    <i class="bi bi-info-circle"></i> 버전 히스토리가 있는 데이터베이스가 없습니다.
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -42,7 +48,7 @@
                 </div>
                 <div id="tablesContent">
                     <div class="text-muted text-center py-3">
-                        연결을 선택하면 버전이 있는 테이블 목록이 표시됩니다.
+                        데이터베이스를 선택하면 버전이 있는 테이블 목록이 표시됩니다.
                     </div>
                 </div>
             </div>
@@ -271,11 +277,11 @@
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    let currentConnectionId = null;
+    let currentDatabase = null;
     let currentTableName = null;
     let versionsData = [];
 
-    const connectionSelect = document.getElementById('connectionSelect');
+    const databaseSelect = document.getElementById('databaseSelect');
     const tablesContent = document.getElementById('tablesContent');
     const tablesLoading = document.getElementById('tablesLoading');
     const tableCount = document.getElementById('tableCount');
@@ -287,27 +293,27 @@ document.addEventListener('DOMContentLoaded', function() {
     const btnCompare = document.getElementById('btnCompare');
     const btnGenerateRollback = document.getElementById('btnGenerateRollback');
 
-    // Connection change handler
-    connectionSelect.addEventListener('change', function() {
-        currentConnectionId = this.value;
+    // Database change handler
+    databaseSelect.addEventListener('change', function() {
+        currentDatabase = this.value;
         currentTableName = null;
         resetTimeline();
         resetComparison();
 
-        if (currentConnectionId) {
-            loadTablesWithVersions(currentConnectionId);
+        if (currentDatabase) {
+            loadTablesWithVersions(currentDatabase);
         } else {
-            tablesContent.innerHTML = '<div class="text-muted text-center py-3">연결을 선택하면 버전이 있는 테이블 목록이 표시됩니다.</div>';
+            tablesContent.innerHTML = '<div class="text-muted text-center py-3">데이터베이스를 선택하면 버전이 있는 테이블 목록이 표시됩니다.</div>';
             tableCount.textContent = '0개';
         }
     });
 
     // Load tables with versions
-    function loadTablesWithVersions(connectionId) {
+    function loadTablesWithVersions(database) {
         tablesLoading.style.display = 'block';
         tablesContent.innerHTML = '';
 
-        fetch(`{% url 'query_manager:version_management' %}?connection_id=${connectionId}&action=get_tables`)
+        fetch(`{% url 'query_manager:version_management' %}?action=get_tables&database=${encodeURIComponent(database)}`)
             .then(response => response.json())
             .then(data => {
                 tablesLoading.style.display = 'none';
@@ -327,7 +333,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             document.querySelectorAll('.table-pill').forEach(p => p.classList.remove('active'));
                             this.classList.add('active');
                             currentTableName = this.dataset.table;
-                            loadVersionTimeline(currentConnectionId, currentTableName);
+                            loadVersionTimeline(currentDatabase, currentTableName);
                         });
                     });
                 } else {
@@ -343,16 +349,22 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Load version timeline
-    function loadVersionTimeline(connectionId, tableName) {
+    function loadVersionTimeline(database, tableName) {
         timelineLoading.style.display = 'block';
         timelineContent.innerHTML = '';
         selectedTableName.style.display = 'inline-block';
         selectedTableName.textContent = tableName;
 
-        fetch(`/versions/timeline/${connectionId}/${tableName}/`)
+        fetch(`{% url 'query_manager:version_management' %}?action=get_timeline&database=${encodeURIComponent(database)}&table=${encodeURIComponent(tableName)}`)
             .then(response => response.json())
             .then(data => {
                 timelineLoading.style.display = 'none';
+
+                if (data.error) {
+                    timelineContent.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+                    resetComparison();
+                    return;
+                }
 
                 if (data.versions && data.versions.length > 0) {
                     versionsData = data.versions;
@@ -380,6 +392,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             <strong>버전 ${v.version}</strong>
                             ${v.tags ? v.tags.map(t => `<span class="version-tag">${t.tag_name}</span>`).join('') : ''}
                             <span class="badge bg-secondary ms-2">${v.ddl_type || 'DDL'}</span>
+                            ${v.connection_name ? `<span class="badge bg-info ms-1">${v.connection_name}</span>` : ''}
                         </div>
                         <button type="button" class="btn btn-sm btn-outline-primary btn-add-tag"
                                 data-version-id="${v.id}" data-bs-toggle="modal" data-bs-target="#tagModal">
@@ -609,8 +622,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.getElementById('tagName').value = '';
                 document.getElementById('tagMemo').value = '';
                 // Refresh timeline
-                if (currentConnectionId && currentTableName) {
-                    loadVersionTimeline(currentConnectionId, currentTableName);
+                if (currentDatabase && currentTableName) {
+                    loadVersionTimeline(currentDatabase, currentTableName);
                 }
             } else {
                 alert(data.error || '태그 저장 중 오류가 발생했습니다.');
@@ -631,8 +644,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (data.success) {
                 loadExistingTags(versionId);
                 // Refresh timeline
-                if (currentConnectionId && currentTableName) {
-                    loadVersionTimeline(currentConnectionId, currentTableName);
+                if (currentDatabase && currentTableName) {
+                    loadVersionTimeline(currentDatabase, currentTableName);
                 }
             } else {
                 alert(data.error || '태그 삭제 중 오류가 발생했습니다.');
@@ -645,11 +658,6 @@ document.addEventListener('DOMContentLoaded', function() {
         div.textContent = text;
         return div.innerHTML;
     }
-
-    // Auto-select connection if provided
-    {% if selected_connection %}
-    connectionSelect.dispatchEvent(new Event('change'));
-    {% endif %}
 });
 </script>
 {% endblock %}

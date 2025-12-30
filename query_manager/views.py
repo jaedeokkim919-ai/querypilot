@@ -37,21 +37,25 @@ class DashboardView(View):
         connections = DatabaseConnection.objects.filter(is_active=True)
         recent_queries = QueryExecution.objects.select_related('connection')[:10]
 
-        # 통계
-        today = timezone.now().date()
-        week_ago = today - timedelta(days=7)
+        # 통계 - 타임존을 고려한 날짜 필터링
+        now = timezone.now()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+        week_ago_start = (today_start - timedelta(days=7))
 
         stats = {
             'total_connections': connections.count(),
             'total_queries_today': QueryExecution.objects.filter(
-                executed_at__date=today
+                executed_at__gte=today_start,
+                executed_at__lte=today_end
             ).count(),
             'failed_queries_today': QueryExecution.objects.filter(
-                executed_at__date=today,
+                executed_at__gte=today_start,
+                executed_at__lte=today_end,
                 status='FAILED'
             ).count(),
             'queries_this_week': QueryExecution.objects.filter(
-                executed_at__date__gte=week_ago
+                executed_at__gte=week_ago_start
             ).count(),
         }
 
@@ -67,8 +71,8 @@ class DashboardView(View):
             'recent_queries': recent_queries,
             'stats': stats,
             'connection_stats': connection_stats,
-            'today': today.strftime('%Y-%m-%d'),
-            'week_ago': week_ago.strftime('%Y-%m-%d'),
+            'today': today_start.strftime('%Y-%m-%d'),
+            'week_ago': week_ago_start.strftime('%Y-%m-%d'),
         }
         return render(request, 'query_manager/dashboard.html', context)
 
@@ -507,61 +511,67 @@ class VersionManagementView(View):
     """버전 관리 메인 뷰"""
 
     def get(self, request):
-        # AJAX 요청: 테이블 목록 조회
         action = request.GET.get('action')
-        connection_id = request.GET.get('connection_id') or request.GET.get('connection')
 
-        if action == 'get_tables' and connection_id:
-            try:
-                connection = DatabaseConnection.objects.get(pk=connection_id)
-                tables = SchemaVersion.objects.filter(
-                    connection=connection
-                ).values('table_name').annotate(
-                    version_count=Count('id')
-                ).order_by('table_name')
+        # AJAX: 데이터베이스별 테이블 목록 조회
+        if action == 'get_tables':
+            database_name = request.GET.get('database')
+            if not database_name:
+                return JsonResponse({'error': '데이터베이스를 선택해주세요.'})
 
-                return JsonResponse({
-                    'tables': list(tables)
+            # 해당 데이터베이스를 사용하는 연결들의 스키마 버전에서 테이블 조회
+            tables = SchemaVersion.objects.filter(
+                connection__database=database_name
+            ).values('table_name').annotate(
+                version_count=Count('id')
+            ).order_by('table_name')
+
+            return JsonResponse({'tables': list(tables)})
+
+        # AJAX: 테이블의 버전 타임라인 조회 (database + table_name 기준)
+        if action == 'get_timeline':
+            database_name = request.GET.get('database')
+            table_name = request.GET.get('table')
+
+            if not database_name or not table_name:
+                return JsonResponse({'error': '데이터베이스와 테이블을 선택해주세요.'})
+
+            versions_qs = SchemaVersion.objects.filter(
+                connection__database=database_name,
+                table_name=table_name
+            ).order_by('-version')
+
+            versions = []
+            for v in versions_qs:
+                tags = list(v.tags.values('id', 'tag_name', 'memo', 'created_by'))
+                versions.append({
+                    'id': v.id,
+                    'version': v.version,
+                    'captured_at': v.created_at.strftime('%Y-%m-%d %H:%M:%S') if v.created_at else None,
+                    'executed_by': v.executed_by,
+                    'change_summary': v.change_summary,
+                    'ddl_type': v.ddl_type,
+                    'schema_definition': v.schema_definition,
+                    'connection_name': v.connection.name,
+                    'tags': tags
                 })
-            except DatabaseConnection.DoesNotExist:
-                return JsonResponse({'error': '연결을 찾을 수 없습니다.'})
 
-        # 일반 페이지 렌더링
-        connections = DatabaseConnection.objects.filter(is_active=True)
+            return JsonResponse({'versions': versions, 'table_name': table_name})
 
-        selected_connection = None
-        tables_with_versions = []
-        selected_table = request.GET.get('table')
-        versions = []
-
-        if connection_id:
-            try:
-                selected_connection = DatabaseConnection.objects.get(pk=connection_id)
-
-                # 버전이 있는 테이블 목록
-                tables_with_versions = SchemaVersion.objects.filter(
-                    connection=selected_connection
-                ).values('table_name').annotate(
-                    version_count=Count('id'),
-                    latest_version=Count('version')
-                ).order_by('table_name')
-
-                # 선택된 테이블의 버전 목록
-                if selected_table:
-                    versions = SchemaVersion.objects.filter(
-                        connection=selected_connection,
-                        table_name=selected_table
-                    ).order_by('-version')
-
-            except DatabaseConnection.DoesNotExist:
-                pass
+        # 페이지 렌더링: 버전 히스토리가 있는 데이터베이스 목록
+        databases = SchemaVersion.objects.values(
+            'connection__database'
+        ).annotate(
+            version_count=Count('id'),
+            table_count=Count('table_name', distinct=True)
+        ).filter(
+            connection__database__isnull=False
+        ).exclude(
+            connection__database=''
+        ).order_by('connection__database')
 
         context = {
-            'connections': connections,
-            'selected_connection': int(connection_id) if connection_id else None,
-            'tables_with_versions': tables_with_versions,
-            'selected_table': selected_table,
-            'versions': versions,
+            'databases': list(databases),
         }
         return render(request, 'query_manager/version_management.html', context)
 
