@@ -708,17 +708,28 @@ document.addEventListener('DOMContentLoaded', function() {
         data.results.forEach((result, idx) => {
             const statusClass = result.success ? 'success' : 'danger';
 
-            // SELECT 쿼리인 경우 결과 테이블 표시
-            if (result.query_type === 'SELECT' && result.data && result.data.length > 0) {
+            // 디버깅: 결과 데이터 확인
+            console.log('Query result:', idx, result);
+
+            // SELECT 쿼리인 경우
+            if (result.query_type === 'SELECT') {
+                const rowCount = result.data ? result.data.length : 0;
                 html += `
                     <div class="alert alert-${statusClass} py-2">
                         <strong>#${idx + 1}</strong> ${result.query_type} -
-                        ${result.data.length}행 조회,
+                        ${rowCount}행 조회,
                         실행 시간: ${result.execution_time.toFixed(3)}초
                     </div>
                 `;
-                html += renderDataTable(result.data, result.columns);
+                // 데이터가 있으면 테이블 표시
+                if (result.data && result.data.length > 0) {
+                    html += renderDataTable(result.data, result.columns);
+                } else if (result.columns && result.columns.length > 0) {
+                    // 데이터는 없지만 컬럼 정보가 있으면 빈 테이블 헤더 표시
+                    html += `<div class="text-muted small p-2"><i class="bi bi-info-circle"></i> 조회된 데이터가 없습니다. (컬럼: ${result.columns.join(', ')})</div>`;
+                }
             } else {
+                // DML/DDL 쿼리
                 html += `
                     <div class="alert alert-${statusClass} py-2">
                         <strong>#${idx + 1}</strong> ${result.query_type} -
@@ -792,20 +803,29 @@ document.addEventListener('DOMContentLoaded', function() {
     function renderServerResult(serverResult) {
         let html = '';
 
+        // 디버깅: 서버 결과 확인
+        console.log('Server result:', serverResult);
+
         if (serverResult.success) {
             const statusClass = 'success';
 
-            // SELECT 쿼리인 경우 결과 테이블 표시
-            if (serverResult.query_type === 'SELECT' && serverResult.data && serverResult.data.length > 0) {
+            // SELECT 쿼리인 경우
+            if (serverResult.query_type === 'SELECT') {
+                const rowCount = serverResult.data ? serverResult.data.length : 0;
                 html += `
                     <div class="alert alert-${statusClass} py-2">
                         <i class="bi bi-check-circle"></i> ${serverResult.query_type} -
-                        ${serverResult.data.length}행 조회,
+                        ${rowCount}행 조회,
                         실행 시간: ${serverResult.execution_time.toFixed(3)}초
                     </div>
                 `;
-                html += renderDataTable(serverResult.data, serverResult.columns);
+                if (rowCount > 0) {
+                    html += renderDataTable(serverResult.data, serverResult.columns);
+                } else if (serverResult.columns && serverResult.columns.length > 0) {
+                    html += `<div class="text-muted small p-2"><i class="bi bi-info-circle"></i> 조회된 데이터가 없습니다. (컬럼: ${serverResult.columns.join(', ')})</div>`;
+                }
             } else {
+                // DML/DDL 쿼리
                 html += `
                     <div class="alert alert-${statusClass} py-2">
                         <i class="bi bi-check-circle"></i> ${serverResult.query_type} -
