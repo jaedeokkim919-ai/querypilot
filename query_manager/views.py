@@ -14,7 +14,7 @@ from django.http import JsonResponse
 from django.contrib import messages
 from django.db.models import Count, Q
 from django.utils import timezone
-from datetime import timedelta
+from datetime import timedelta, datetime
 
 # 배치 실행 진행 상황 저장 (메모리 기반 - 프로덕션에서는 Redis 등 사용 권장)
 batch_progress_store = {}
@@ -260,9 +260,19 @@ class HistoryListView(View):
             if form.cleaned_data.get('search'):
                 queryset = queryset.filter(query_text__icontains=form.cleaned_data['search'])
             if form.cleaned_data.get('date_from'):
-                queryset = queryset.filter(executed_at__date__gte=form.cleaned_data['date_from'])
+                # 시작일 00:00:00부터 필터링 (타임존 고려)
+                date_from = form.cleaned_data['date_from']
+                start_datetime = timezone.make_aware(
+                    datetime.combine(date_from, datetime.min.time())
+                ) if timezone.is_naive(datetime.combine(date_from, datetime.min.time())) else datetime.combine(date_from, datetime.min.time())
+                queryset = queryset.filter(executed_at__gte=start_datetime)
             if form.cleaned_data.get('date_to'):
-                queryset = queryset.filter(executed_at__date__lte=form.cleaned_data['date_to'])
+                # 종료일 23:59:59까지 필터링 (타임존 고려)
+                date_to = form.cleaned_data['date_to']
+                end_datetime = timezone.make_aware(
+                    datetime.combine(date_to, datetime.max.time())
+                ) if timezone.is_naive(datetime.combine(date_to, datetime.max.time())) else datetime.combine(date_to, datetime.max.time())
+                queryset = queryset.filter(executed_at__lte=end_datetime)
 
             # 카테고리 필터
             category = form.cleaned_data.get('category')

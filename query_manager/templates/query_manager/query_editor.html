@@ -382,30 +382,45 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => response.json())
         .then(data => {
             if (data.is_multi_server) {
-                // 다중 서버 결과 표시
+                // 다중 서버 결과 표시 (상세)
                 let statusHtml = '';
+                const successCount = data.successful_hosts || 0;
+                const totalCount = data.total_hosts || 0;
+
                 if (data.success) {
-                    statusHtml = `<span class="text-success"><i class="bi bi-check-circle"></i> ${data.message}</span>`;
+                    statusHtml = `<div class="text-success mb-2"><i class="bi bi-check-circle-fill"></i> <strong>연결 성공 (${successCount}/${totalCount})</strong></div>`;
                 } else {
-                    statusHtml = `<span class="text-warning"><i class="bi bi-exclamation-triangle"></i> ${data.message}</span>`;
+                    statusHtml = `<div class="text-warning mb-2"><i class="bi bi-exclamation-triangle-fill"></i> <strong>일부 연결 실패 (${successCount}/${totalCount})</strong></div>`;
                 }
-                statusHtml += '<div class="small mt-1">';
+
+                statusHtml += '<div class="small">';
                 data.results.forEach(r => {
-                    const icon = r.success ? 'check-circle text-success' : 'x-circle text-danger';
-                    statusHtml += `<span class="me-2"><i class="bi bi-${icon}"></i> ${r.hostname || r.host}</span>`;
+                    if (r.success) {
+                        statusHtml += `<div class="text-success mb-1">
+                            <i class="bi bi-check-circle-fill"></i>
+                            <strong>${r.hostname || '알 수 없음'}</strong>
+                            <span class="text-muted">(${r.host})</span>
+                        </div>`;
+                    } else {
+                        statusHtml += `<div class="text-danger mb-1">
+                            <i class="bi bi-x-circle-fill"></i>
+                            <strong>${r.host}</strong>
+                            <span class="d-block text-muted ms-3" style="font-size: 0.85em;">오류: ${r.message || '연결 실패'}</span>
+                        </div>`;
+                    }
                 });
                 statusHtml += '</div>';
                 connectionStatus.innerHTML = statusHtml;
             } else {
                 // 단일 서버 결과 표시
                 if (data.success) {
-                    let statusHtml = `<span class="text-success"><i class="bi bi-check-circle"></i> 연결 성공</span>`;
+                    let statusHtml = `<span class="text-success"><i class="bi bi-check-circle-fill"></i> 연결 성공</span>`;
                     if (data.hostname) {
                         statusHtml += `<br><small class="text-muted"><i class="bi bi-server"></i> ${data.hostname}</small>`;
                     }
                     connectionStatus.innerHTML = statusHtml;
                 } else {
-                    connectionStatus.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> 연결 실패</span>`;
+                    connectionStatus.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle-fill"></i> 연결 실패: ${data.message || '알 수 없는 오류'}</span>`;
                 }
             }
         });

@@ -80,11 +80,7 @@
         <small class="text-muted ms-2">세미콜론(;)으로 여러 쿼리를 구분</small>
     </div>
     <div class="card-body p-0">
-        <textarea id="sql-editor">-- 여러 쿼리를 세미콜론으로 구분하여 입력하세요
--- 예시:
--- INSERT INTO table1 VALUES (1, 'a');
--- INSERT INTO table1 VALUES (2, 'b');
--- INSERT INTO table1 VALUES (3, 'c');</textarea>
+        <textarea id="sql-editor">-- DML 쿼리를 입력하세요</textarea>
     </div>
 </div>
 
@@ -161,6 +157,27 @@ document.addEventListener('DOMContentLoaded', function() {
         lineWrapping: true,
         matchBrackets: true,
         autofocus: true
+    });
+
+    // 플레이스홀더 동작
+    const placeholder = '-- DML 쿼리를 입력하세요';
+    let userHasTyped = false;
+
+    editor.on('change', function() {
+        const val = editor.getValue();
+        if (val !== placeholder && val.trim() !== '') {
+            userHasTyped = true;
+        }
+    });
+    editor.on('focus', function() {
+        if (editor.getValue() === placeholder) {
+            editor.setValue('');
+        }
+    });
+    editor.on('blur', function() {
+        if (editor.getValue().trim() === '' && !userHasTyped) {
+            editor.setValue(placeholder);
+        }
     });
 
     const connectionSelect = document.getElementById('connection-select');

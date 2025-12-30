@@ -34,17 +34,68 @@
                         {% endif %}
                     </div>
 
-                    <div class="row">
-                        <div class="col-md-8">
-                            <div class="mb-3">
-                                <label for="id_host" class="form-label">호스트 <span class="text-danger">*</span></label>
-                                {{ form.host }}
+                    <!-- 호스트 모드 선택 -->
+                    <div class="mb-3">
+                        <label class="form-label d-block">호스트 모드</label>
+                        <div class="btn-group" role="group" aria-label="호스트 모드 선택">
+                            <input type="radio" class="btn-check" name="host_mode" id="host_mode_single" value="single"
+                                   {% if not form.instance.hosts %}checked{% endif %}>
+                            <label class="btn btn-outline-primary" for="host_mode_single">
+                                <i class="bi bi-hdd"></i> 단일 호스트
+                            </label>
+                            <input type="radio" class="btn-check" name="host_mode" id="host_mode_multi" value="multi"
+                                   {% if form.instance.hosts %}checked{% endif %}>
+                            <label class="btn btn-outline-primary" for="host_mode_multi">
+                                <i class="bi bi-hdd-stack"></i> 다중 호스트
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- 단일 호스트 입력 -->
+                    <div id="single-host-section" {% if form.instance.hosts %}style="display: none;"{% endif %}>
+                        <div class="row">
+                            <div class="col-md-8">
+                                <div class="mb-3">
+                                    <label for="id_host" class="form-label">호스트 <span class="text-danger">*</span></label>
+                                    {{ form.host }}
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="mb-3">
+                                    <label for="id_port" class="form-label">포트 <span class="text-danger">*</span></label>
+                                    {{ form.port }}
+                                </div>
                             </div>
                         </div>
-                        <div class="col-md-4">
-                            <div class="mb-3">
-                                <label for="id_port" class="form-label">포트 <span class="text-danger">*</span></label>
-                                {{ form.port }}
+                    </div>
+
+                    <!-- 다중 호스트 입력 -->
+                    <div id="multi-host-section" {% if not form.instance.hosts %}style="display: none;"{% endif %}>
+                        <div class="row">
+                            <div class="col-md-8">
+                                <div class="mb-3">
+                                    <label for="id_hosts" class="form-label">
+                                        <i class="bi bi-hdd-stack"></i> 다중 호스트 <span class="text-danger">*</span>
+                                    </label>
+                                    {{ form.hosts }}
+                                    <div class="form-text">여러 호스트를 줄바꿈으로 구분하여 입력하세요.</div>
+                                    {% if form.instance.pk and form.instance.hosts %}
+                                    <div class="mt-2">
+                                        <small class="text-muted">
+                                            <i class="bi bi-info-circle"></i>
+                                            현재 {{ form.instance.get_hosts_count }}개 서버 설정됨
+                                        </small>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="mb-3">
+                                    <label for="id_port" class="form-label">포트 <span class="text-danger">*</span></label>
+                                    <input type="number" class="form-control" id="id_port_multi" name="port_display"
+                                           value="{{ form.instance.port|default:3306 }}" disabled>
+                                    <div class="form-text">모든 호스트에 동일 포트 적용</div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -77,23 +128,6 @@
                         <label for="id_schema" class="form-label">스키마</label>
                         {{ form.schema }}
                         <div class="form-text">{{ form.schema.help_text }}</div>
-                    </div>
-
-                    <!-- 다중 서버 지원 -->
-                    <div class="mb-3">
-                        <label for="id_hosts" class="form-label">
-                            <i class="bi bi-hdd-stack"></i> 다중 호스트 (선택)
-                        </label>
-                        {{ form.hosts }}
-                        <div class="form-text">{{ form.hosts.help_text }}</div>
-                        {% if form.instance.pk and form.instance.hosts %}
-                        <div class="mt-2">
-                            <small class="text-muted">
-                                <i class="bi bi-info-circle"></i>
-                                현재 {{ form.instance.get_hosts_count }}개 서버 설정됨
-                            </small>
-                        </div>
-                        {% endif %}
                     </div>
 
                     <div class="mb-4">
@@ -147,4 +181,51 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const singleHostRadio = document.getElementById('host_mode_single');
+    const multiHostRadio = document.getElementById('host_mode_multi');
+    const singleHostSection = document.getElementById('single-host-section');
+    const multiHostSection = document.getElementById('multi-host-section');
+    const hostInput = document.getElementById('id_host');
+    const hostsInput = document.getElementById('id_hosts');
+    const portInput = document.getElementById('id_port');
+    const portMultiDisplay = document.getElementById('id_port_multi');
+
+    function toggleHostMode() {
+        if (singleHostRadio.checked) {
+            singleHostSection.style.display = 'block';
+            multiHostSection.style.display = 'none';
+            // 단일 호스트 모드: hosts 필드 비우기
+            if (hostsInput) hostsInput.value = '';
+        } else {
+            singleHostSection.style.display = 'none';
+            multiHostSection.style.display = 'block';
+            // 다중 호스트 모드: 포트 동기화
+            if (portMultiDisplay && portInput) {
+                portMultiDisplay.value = portInput.value || 3306;
+            }
+        }
+    }
+
+    // 포트 변경 시 다중 호스트 표시 동기화
+    if (portInput) {
+        portInput.addEventListener('change', function() {
+            if (portMultiDisplay) {
+                portMultiDisplay.value = this.value;
+            }
+        });
+    }
+
+    // 라디오 버튼 이벤트 리스너
+    if (singleHostRadio) singleHostRadio.addEventListener('change', toggleHostMode);
+    if (multiHostRadio) multiHostRadio.addEventListener('change', toggleHostMode);
+
+    // 초기 상태 설정
+    toggleHostMode();
+});
+</script>
 {% endblock %}

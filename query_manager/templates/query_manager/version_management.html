@@ -349,7 +349,7 @@ document.addEventListener('DOMContentLoaded', function() {
         selectedTableName.style.display = 'inline-block';
         selectedTableName.textContent = tableName;
 
-        fetch(`{% url 'query_manager:version_management' %}timeline/${connectionId}/${tableName}/`)
+        fetch(`/versions/timeline/${connectionId}/${tableName}/`)
             .then(response => response.json())
             .then(data => {
                 timelineLoading.style.display = 'none';
@@ -519,7 +519,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        fetch(`{% url 'query_manager:version_management' %}${toId}/rollback-ddl/?target_version_id=${fromId}`)
+        fetch(`/versions/${toId}/rollback-ddl/?target_version_id=${fromId}`)
             .then(response => response.json())
             .then(data => {
                 if (data.error) {
@@ -549,7 +549,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Load existing tags
     function loadExistingTags(versionId) {
-        fetch(`{% url 'query_manager:version_management' %}${versionId}/tag/`)
+        fetch(`/versions/${versionId}/tag/`)
             .then(response => response.json())
             .then(data => {
                 const existingTagsDiv = document.getElementById('existingTags');
@@ -594,7 +594,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        fetch(`{% url 'query_manager:version_management' %}${versionId}/tag/`, {
+        fetch(`/versions/${versionId}/tag/`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -620,7 +620,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Delete tag
     function deleteTag(versionId, tagId) {
-        fetch(`{% url 'query_manager:version_management' %}${versionId}/tag/?tag_id=${tagId}`, {
+        fetch(`/versions/${versionId}/tag/?tag_id=${tagId}`, {
             method: 'DELETE',
             headers: {
                 'X-CSRFToken': csrftoken

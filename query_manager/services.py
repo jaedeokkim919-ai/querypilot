@@ -940,7 +940,9 @@ class QueryService:
                         'execution_time': 0,
                         'error': '',
                         'schema_before': '',
-                        'schema_after': ''
+                        'schema_after': '',
+                        'columns': [],
+                        'data': []
                     }
 
                     # DDL인 경우 스키마 저장
@@ -959,6 +961,8 @@ class QueryService:
                             if query_type == 'SELECT':
                                 rows = cursor.fetchmany(self.max_rows)
                                 query_result['affected_rows'] = len(rows)
+                                query_result['columns'] = [desc[0] for desc in cursor.description] if cursor.description else []
+                                query_result['data'] = rows
                             else:
                                 query_result['affected_rows'] = cursor.rowcount
 
