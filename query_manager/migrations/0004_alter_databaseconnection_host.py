@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('query_manager', '0002_databaseconnection_hosts'),
+        ('query_manager', '0003_merge_20251229_1913'),
     ]
 
     operations = [
