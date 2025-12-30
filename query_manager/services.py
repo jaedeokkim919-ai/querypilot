@@ -963,11 +963,8 @@ class QueryService:
                                 query_result['affected_rows'] = len(rows)
                                 columns = [desc[0] for desc in cursor.description] if cursor.description else []
                                 query_result['columns'] = columns
-                                # rows를 딕셔너리 형태로 변환
-                                query_result['data'] = [
-                                    {columns[i]: row[i] for i in range(len(columns))}
-                                    for row in rows
-                                ]
+                                # DictCursor 사용으로 rows는 이미 딕셔너리 리스트
+                                query_result['data'] = list(rows) if rows else []
                             else:
                                 query_result['affected_rows'] = cursor.rowcount
 
